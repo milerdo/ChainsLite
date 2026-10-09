@@ -6,7 +6,7 @@ Rule of thumb: if a rule cannot be explained in one sentence, simplify it.
 
 1. CORE RULES
 - One continuous shared stream of independent uniform digits 0-9 (one wheel spin per draw).
-- Player picks 3 digits (0-9), IN ORDER. Repeats allowed (7-7-7 is valid). Fixed stake $1 (demo credits).
+- Player picks 3 digits (0-9), IN ORDER. Repeats allowed (7-7-7 is valid). Fixed stake €1 (demo credits).
 - A link starts on the first draw after its bet is accepted and lives exactly 3 draws.
 - Draw 1 of the link is checked ONLY against digit 1, draw 2 ONLY against digit 2, draw 3 ONLY against digit 3.
 - A miss does NOT end the link. All 3 draws always play. Settlement happens on the link's 3rd draw.
@@ -15,7 +15,7 @@ Rule of thumb: if a rule cannot be explained in one sentence, simplify it.
     1 hit   -> 1.5x total return
     2 hits  -> 10x total return
     3 hits  -> progressive jackpot (instead of, not in addition to, the 1.5x/10x prizes)
-- Total return includes the stake ($1 bet, 1 hit pays $1.50).
+- Total return includes the stake (€1 bet, 1 hit pays €1.50).
 - Links resolve independently. Several links can be in flight at once (overlapping timelines).
 
 2. ODDS (each position is an independent 1-in-10)
@@ -23,8 +23,8 @@ Rule of thumb: if a rule cannot be explained in one sentence, simplify it.
   Chance of any payout before jackpot: 27.1%.
 
 3. JACKPOT (single progressive pool)
-- Pool is seeded at 200x stake ($200). After every jackpot win it resets to $200.
-- Contribution: 11.55% of each stake ($0.12 per $1) added to the pool when the bet is confirmed.
+- Pool is seeded at 200x stake (€200). After every jackpot win it resets to €200.
+- Contribution: 12% of each stake (€0.12 per 1) added to the pool when the bet is confirmed.
 - Winner takes the whole pool (seed + accumulated). Average win = 200 + 0.12/0.001 = 320x. Minimum win 200x.
 - Simultaneous winners (links settling on the same draw with 3 hits) split the pool equally.
 - The 200x seed is funded by the operator. In the model it costs 0.001 x 200 = 20% of turnover per bet, recouped over time; it is part of the player RTP, not a separate loss.
@@ -46,7 +46,7 @@ Target cycle shorter than CHAINS (a link spans 3 draws). Exact timings TBD.
 
 6. UI (target)
 - Betting panel: 3 digit slots, digit pad, Clear, Random, Bet. Nothing else for MVP.
-- Display of the potential prizes near the panel ("1 = 1.5x, 2 = 10x, 3 = JACKPOT $N").
+- Display of the potential prizes near the panel ("1 = 1.5x, 2 = 10x, 3 = JACKPOT €N").
 - Active links: 3 circles per link, each filling as its own draw comes (hit / miss / pending), with a "spin k of 3" indication. A miss shows red, hit green, active number for current spin glowing orange or gold. The link stays alive until draw 3.
 - Single jackpot pool display.
 - Result moment on settlement: clear win amount for 1 or 2 hits, celebration for jackpot.
@@ -64,7 +64,7 @@ Tiers (LOW/MEDIUM/HIGH), three pools (MINI/MIDI/GRAND), jackpot pair, jackpot qu
 - One bet per round or several links per round?
 - Cycle timings (betting / spin / result).
 - Prize split between 1 hit and 2 hits (current 1.5x / 10x; alternative 1.2x / 13x).
-- Demo preset pool value and simulated pool growth (single player moves the pool $0.12 per bet).
+- Demo preset pool value and simulated pool growth (single player moves the pool €0.12 per bet).
 - Product name (CHAINS LITE is a working title).
 
 10. NON-GOALS
