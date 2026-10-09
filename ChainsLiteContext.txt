@@ -24,8 +24,8 @@ Rule of thumb: if a rule cannot be explained in one sentence, simplify it.
 
 3. JACKPOT (single progressive pool)
 - Pool is seeded at 200x stake ($200). After every jackpot win it resets to $200.
-- Contribution: 12% of each stake ($0.12 per $1) added to the pool when the bet is confirmed.
-- Winner takes the whole pool (seed + accumulated). Average win = 200 + 0.1155/0.001 = 320x. Minimum win 200x.
+- Contribution: 11.55% of each stake ($0.12 per $1) added to the pool when the bet is confirmed.
+- Winner takes the whole pool (seed + accumulated). Average win = 200 + 0.12/0.001 = 320x. Minimum win 200x.
 - Simultaneous winners (links settling on the same draw with 3 hits) split the pool equally.
 - The 200x seed is funded by the operator. In the model it costs 0.001 x 200 = 20% of turnover per bet, recouped over time; it is part of the player RTP, not a separate loss.
 - Demo only (?demo): pool may be preloaded to a presentation value (e.g. ~300). Never applies in normal mode, never used in any RTP figure.
@@ -35,18 +35,19 @@ Rule of thumb: if a rule cannot be explained in one sentence, simplify it.
   2 hits:  0.027 x 10  = 27.00%
   Regular prizes total = 63.45%
   Jackpot RTP = contribution + seed/1000 = 12% + 20% = 32%
-  TOTAL RTP = 95.00%   House edge 5.00%
+  TOTAL RTP = 95.45%   House edge 4.55% 
 Pool conservation: paid jackpots = contributions + seeds funded.
 Prize split and contribution are configurable constants. If any change, recompute RTP first.
 
 5. GAME LOOP (MVP)
 Keep CHAINS phases: BETTING_OPEN -> BETTING_CLOSED -> DRAWING -> RESULT, one global draw per cycle. Timings configurable in constants.ts.
 Betting attaches the link to the next draw. Draws are never paused or reset by betting.
+Target cycle shorter than CHAINS (a link spans 3 draws). Exact timings TBD.
 
 6. UI (target)
-- Betting panel: 3 digit slots, digit pad, Random, Clear, Bet. Nothing else for MVP.
+- Betting panel: 3 digit slots, digit pad, Clear, Random, Bet. Nothing else for MVP.
 - Display of the potential prizes near the panel ("1 = 1.5x, 2 = 10x, 3 = JACKPOT $N").
-- Active links: 3 circles per link, each filling as its own draw comes (hit / miss / pending), A miss shows red, a hit number green and active number for current spin glowing gold. The link stays alive until draw 3.
+- Active links: 3 circles per link, each filling as its own draw comes (hit / miss / pending), with a "spin k of 3" indication. A miss shows red, hit green, active number for current spin glowing orange or gold. The link stays alive until draw 3.
 - Single jackpot pool display.
 - Result moment on settlement: clear win amount for 1 or 2 hits, celebration for jackpot.
 - Wheel, recent-digits strip, sounds, Help modal, Balance, ?demo Demo Panel kept from CHAINS.
@@ -60,8 +61,10 @@ Tiers (LOW/MEDIUM/HIGH), three pools (MINI/MIDI/GRAND), jackpot pair, jackpot qu
 
 9. OPEN DECISIONS (ask before implementing the affected part)
 - Bet-ahead: allow queuing a bet during DRAWING/RESULT for the next window?
-- One bet per round or several links per round? Repeat Bet button?
+- One bet per round or several links per round?
 - Cycle timings (betting / spin / result).
+- Prize split between 1 hit and 2 hits (current 1.5x / 10x; alternative 1.2x / 13x).
+- Demo preset pool value and simulated pool growth (single player moves the pool $0.12 per bet).
 - Product name (CHAINS LITE is a working title).
 
 10. NON-GOALS
