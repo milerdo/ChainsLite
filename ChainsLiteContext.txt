@@ -1,0 +1,71 @@
+CHAINS LITE — Game Specification (MVP)
+
+0. PURPOSE
+A simplified version of CHAINS for pitching to iGaming studios. Same shared draw stream and wheel, drastically simpler betting: pick 3 digits, press Bet. Demo credits only.
+Rule of thumb: if a rule cannot be explained in one sentence, simplify it.
+
+1. CORE RULES
+- One continuous shared stream of independent uniform digits 0-9 (one wheel spin per draw).
+- Player picks 3 digits (0-9), IN ORDER. Repeats allowed (7-7-7 is valid). Fixed stake $1 (demo credits).
+- A link starts on the first draw after its bet is accepted and lives exactly 3 draws.
+- Draw 1 of the link is checked ONLY against digit 1, draw 2 ONLY against digit 2, draw 3 ONLY against digit 3.
+- A miss does NOT end the link. All 3 draws always play. Settlement happens on the link's 3rd draw.
+- Hits (correct positions) determine the prize:
+    0 hits  -> lose
+    1 hit   -> 1.5x total return
+    2 hits  -> 10x total return
+    3 hits  -> progressive jackpot (instead of, not in addition to, the 1.5x/10x prizes)
+- Total return includes the stake ($1 bet, 1 hit pays $1.50).
+- Links resolve independently. Several links can be in flight at once (overlapping timelines).
+
+2. ODDS (each position is an independent 1-in-10)
+  0 hits 72.9% | 1 hit 24.3% | 2 hits 2.7% | 3 hits 0.1% (1 in 1,000)
+  Chance of any payout before jackpot: 27.1%.
+
+3. JACKPOT (single progressive pool)
+- Pool is seeded at 200x stake ($200). After every jackpot win it resets to $200.
+- Contribution: 12% of each stake ($0.12 per $1) added to the pool when the bet is confirmed.
+- Winner takes the whole pool (seed + accumulated). Average win = 200 + 0.1155/0.001 = 320x. Minimum win 200x.
+- Simultaneous winners (links settling on the same draw with 3 hits) split the pool equally.
+- The 200x seed is funded by the operator. In the model it costs 0.001 x 200 = 20% of turnover per bet, recouped over time; it is part of the player RTP, not a separate loss.
+- Demo only (?demo): pool may be preloaded to a presentation value (e.g. ~300). Never applies in normal mode, never used in any RTP figure.
+
+4. RTP (derived in src/game/rtp.ts, never hardcoded)
+  1 hit:   0.243 x 1.5 = 36.45%
+  2 hits:  0.027 x 10  = 27.00%
+  Regular prizes total = 63.45%
+  Jackpot RTP = contribution + seed/1000 = 12% + 20% = 32%
+  TOTAL RTP = 95.00%   House edge 5.00%
+Pool conservation: paid jackpots = contributions + seeds funded.
+Prize split and contribution are configurable constants. If any change, recompute RTP first.
+
+5. GAME LOOP (MVP)
+Keep CHAINS phases: BETTING_OPEN -> BETTING_CLOSED -> DRAWING -> RESULT, one global draw per cycle. Timings configurable in constants.ts.
+Betting attaches the link to the next draw. Draws are never paused or reset by betting.
+
+6. UI (target)
+- Betting panel: 3 digit slots, digit pad, Random, Clear, Bet. Nothing else for MVP.
+- Display of the potential prizes near the panel ("1 = 1.5x, 2 = 10x, 3 = JACKPOT $N").
+- Active links: 3 circles per link, each filling as its own draw comes (hit / miss / pending), A miss shows red, a hit number green and active number for current spin glowing gold. The link stays alive until draw 3.
+- Single jackpot pool display.
+- Result moment on settlement: clear win amount for 1 or 2 hits, celebration for jackpot.
+- Wheel, recent-digits strip, sounds, Help modal, Balance, ?demo Demo Panel kept from CHAINS.
+- Player-facing term for a bet: "Link".
+
+7. KEPT FROM CHAINS
+Headless engine + subscribe pattern, RNG module, shared stream with per-link timelines (nextDrawIndex), wheel and reveal-gating pipeline, audio, Help modal, Balance, Demo Panel (?demo), responsive single-screen mobile layout, Vitest + Monte Carlo infrastructure.
+
+8. REMOVED FROM CHAINS
+Tiers (LOW/MEDIUM/HIGH), three pools (MINI/MIDI/GRAND), jackpot pair, jackpot qualification phase and statuses, Combo, LOW multi-pick, concurrency cap per sequence, Auto Bet (replace later with Repeat Bet), LinkStrip.
+
+9. OPEN DECISIONS (ask before implementing the affected part)
+- Bet-ahead: allow queuing a bet during DRAWING/RESULT for the next window?
+- One bet per round or several links per round? Repeat Bet button?
+- Cycle timings (betting / spin / result).
+- Product name (CHAINS LITE is a working title).
+
+10. NON-GOALS
+Real money, server, multiplayer, persistence, certified RNG. Listed in README "Production path".
+
+IMPLEMENTATION LOG (append only; log wins over the sections above)
+- (empty)
