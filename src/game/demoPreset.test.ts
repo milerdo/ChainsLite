@@ -1,20 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { ChainsGame } from './engine';
-import { INITIAL_JACKPOT_POOLS, DEMO_JACKPOT_PRESET } from './constants';
+import { INITIAL_JACKPOT_POOL, DEMO_JACKPOT_PRESET } from './constants';
 import { applyDemoJackpotPreset } from './demoPreset';
 
 describe('demo jackpot preset', () => {
-  it('engine defaults stay unseeded', () => {
-    expect(Object.values(INITIAL_JACKPOT_POOLS).every((v) => v === 0)).toBe(true);
-    const g = new ChainsGame();
-    expect(g.getState().jackpotPools).toEqual(INITIAL_JACKPOT_POOLS);
+  it('engine default is the 200 seed, not the preset', () => {
+    expect(INITIAL_JACKPOT_POOL).toBe(200);
+    expect(new ChainsGame().getState().jackpotPool).toBe(INITIAL_JACKPOT_POOL);
   });
 
-  it('applies only when called, and reset returns to unseeded', () => {
+  it('applies only when called, and reset returns to the seed', () => {
     const g = new ChainsGame();
     applyDemoJackpotPreset(g);
-    expect(g.getState().jackpotPools).toMatchObject(DEMO_JACKPOT_PRESET);
+    expect(g.getState().jackpotPool).toBe(DEMO_JACKPOT_PRESET);
     g.reset();
-    expect(g.getState().jackpotPools).toEqual(INITIAL_JACKPOT_POOLS);
+    expect(g.getState().jackpotPool).toBe(INITIAL_JACKPOT_POOL);
   });
 });

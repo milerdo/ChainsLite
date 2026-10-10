@@ -15,15 +15,15 @@ type Tab = 'GLOBAL' | 'YOURS';
 const VISIBLE_GLOBAL_ROWS = 20;
 const VISIBLE_TICKET_ROWS = 20;
 
+/** Amounts are NET (return minus stake), matching the Session Net total. */
 function outcomeMeta(ticket: Ticket): { label: string; amount: number; tone: 'win' | 'loss' } {
   if (ticket.status === 'LOST') {
     return { label: 'LOSS', amount: -ticket.stake, tone: 'loss' };
   }
   if (ticket.status === 'JACKPOT_WON') {
-    return { label: `${ticket.jackpotTier} JACKPOT`, amount: ticket.totalReturn, tone: 'win' };
+    return { label: 'JACKPOT', amount: ticket.totalReturn - ticket.stake, tone: 'win' };
   }
-  // JACKPOT_LOST: qualification failed, but the base payout still stands.
-  return { label: 'BASE WIN', amount: ticket.baseWinAmount ?? 0, tone: 'win' };
+  return { label: `${ticket.hits} HIT${ticket.hits === 1 ? '' : 'S'}`, amount: ticket.totalReturn - ticket.stake, tone: 'win' };
 }
 
 interface GameHistoryProps {
@@ -84,7 +84,7 @@ export function GameHistory({ defaultTab = 'GLOBAL' }: GameHistoryProps = {}) {
                   className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 font-mono text-xs odd:bg-white/[0.015]"
                 >
                   <span className="text-white/60">
-                    {ticket.tier} {formatSequence(ticket.baseSequence)}
+                    {formatSequence(ticket.digits)}
                   </span>
                   <span className="shrink-0 text-white/35">{outcome.label}</span>
                   <span

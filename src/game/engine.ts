@@ -1,20 +1,14 @@
 // ============================================================================
-// CHAINS — Headless Game Engine (Section 33)
+// CHAINS LITE — Headless Game Engine
 //
-// ChainsGame owns ALL game math and state. It has zero React / DOM
-// dependencies and can run standalone:
+// ChainsGame owns ALL game math and state. Zero React / DOM dependencies:
 //
 //   const game = new ChainsGame();
-//   game.placeBet({ selections: [{ tier: 'HIGH', digits: [4, 2, 3] }], jackpotSequence: [7, 4] });
-//   game.processDraw(4);
-//   game.processDraw(2);
-//   game.processDraw(3);
+//   game.placeBet({ links: [[4, 2, 3]] });
+//   game.processDraw(4); game.processDraw(2); game.processDraw(3);
 //   const state = game.getState();
 //
-// A UI layer (React or otherwise) should only ever call public methods on
-// this class and render whatever getState() / subscribe() hand back. This
-// separation means the frontend, RNG, wallet, server, auth, and jackpot
-// service can all be replaced later without touching the game mathematics.
+// UI code only calls public methods and renders getState() / subscribe().
 // ============================================================================
 
 import type {
@@ -23,75 +17,55 @@ import type {
   GameConfig,
   GamePhase,
   GameState,
-  JackpotPools,
-  JackpotTierName,
   PlaceBetResult,
   SimulatedActivity,
   SimulatedActivityEvent,
   Ticket,
-  TicketTier,
 } from './types';
 import {
-  BASE_SEQUENCE_LENGTH,
   DEFAULT_GAME_CONFIG,
-  INITIAL_JACKPOT_POOLS,
-  MAX_CONCURRENT_TICKETS_PER_SEQUENCE,
+  INITIAL_JACKPOT_POOL,
+  LINK_LENGTH,
+  MAX_LINKS_PER_ROUND,
   MAX_SIMULATED_EVENTS,
   MAX_STREAM_HISTORY,
   MAX_TICKET_HISTORY,
 } from './constants';
 import { JackpotManager } from './jackpot';
+import { formatMoney as money } from './money';
 import { RNG } from './rng';
-import { expandComboPossibilities, validateComboDigits } from './combo';
-import { calculateBaseTotalReturn, calculateTotalStake, roundCurrency } from './payouts';
+import { calculateTotalStake, roundCurrency } from './payouts';
 import {
   activateDueTickets,
-  countActiveWithSameSequence,
   createTicket,
   evaluateTicketOnDraw,
   isTerminal,
-  validateBaseDigits,
-  validateJackpotSequence,
+  validateLinkDigits,
 } from './ticket';
 
 type Listener = (state: GameState) => void;
 
 interface PlaceBetOptions {
-  /** Demo/developer helper tickets can bypass the BETTING_OPEN phase
-   * requirement (Section 27, "Create simulated ticket"). Real player bets
-   * never set this. */
+  /** Demo helper links bypass the BETTING_OPEN requirement and the
+   * per-round link cap. Real player bets never set this. */
   bypassPhaseCheck?: boolean;
 }
 
-const TIER_FOR_JACKPOT: Record<JackpotTierName, TicketTier> = {
-  MINI: 'LOW',
-  MIDI: 'MEDIUM',
-  GRAND: 'HIGH',
-};
-
 const SIMULATED_PLAYER_LABEL_POOL_SIZE = 9000;
-
 export class ChainsGame {
   // --- configuration -------------------------------------------------------
   private config: GameConfig;
   private rng: RNG;
   private jackpotManager: JackpotManager;
-  private readonly seedJackpotPools: JackpotPools;
 
-  // --- core game state -------------------------------------------------------
+  // --- core game state -----------------------------------------------------
   private drawIndex = 0;
   private streamHistory: DrawResult[] = [];
   private currentDraw: DrawResult | null = null;
   private tickets: Ticket[] = [];
   private balance: number;
-  private comboGroupCounter = 0;
-  /** The 2-digit jackpot combination auto-assigned for the current betting
-   * round (Section 9). Regenerated every time a fresh BETTING_OPEN phase
-   * begins (see enterPhase / reset below). The player may still edit it in
-   * the UI before confirming — this is only the starting value. */
-  private currentJackpotSequence: [number, number] = [0, 0];
 
-  // --- phase / scheduler state -----------------------------------------------
+  // --- phase / scheduler state ---------------------------------------------
   private phase: GamePhase = 'BETTING_OPEN';
   private phaseDurationMs: number;
   private phaseRemainingMs: number;
@@ -101,30 +75,26 @@ export class ChainsGame {
   private speedMultiplier = 1;
   private scheduleTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // --- simulated "other players" activity (Section 28, cosmetic only) -------
+  // --- simulated "other players" activity (cosmetic only) ------------------
   private simulatedActivity: SimulatedActivity = {
     playerCount: 0,
-    activeTicketsByTier: { LOW: 0, MEDIUM: 0, HIGH: 0 },
     recentEvents: [],
     digitPopularity: Array(10).fill(10),
   };
 
-  // --- subscribers -------------------------------------------------------
   private listeners: Set<Listener> = new Set();
 
   constructor(
     configOverrides: Partial<GameConfig> = {},
     rng: RNG = new RNG(),
-    seedJackpotPools: JackpotPools = INITIAL_JACKPOT_POOLS,
+    seedJackpotPool: number = INITIAL_JACKPOT_POOL,
   ) {
     this.config = { ...DEFAULT_GAME_CONFIG, ...configOverrides };
     this.rng = rng;
-    this.seedJackpotPools = { ...seedJackpotPools };
-    this.jackpotManager = new JackpotManager(this.seedJackpotPools);
+    this.jackpotManager = new JackpotManager(seedJackpotPool);
     this.balance = this.config.startingBalance;
     this.phaseDurationMs = this.config.bettingDurationMs;
     this.phaseRemainingMs = this.phaseDurationMs;
-    this.currentJackpotSequence = [this.randomDigit(), this.randomDigit()];
     this.simulatedActivity = this.generateSimulatedActivity();
   }
 
@@ -132,7 +102,6 @@ export class ChainsGame {
   // Public: state access
   // ==========================================================================
 
-  /** Full immutable snapshot of the engine. Safe to render directly. */
   getState(): GameState {
     return {
       phase: this.phase,
@@ -141,13 +110,11 @@ export class ChainsGame {
       streamHistory: [...this.streamHistory],
       tickets: this.tickets.map((t) => ({
         ...t,
-        baseSequence: [...t.baseSequence],
-        jackpotSequence: [t.jackpotSequence[0], t.jackpotSequence[1]],
+        digits: [...t.digits],
         drawLog: [...t.drawLog],
       })),
       balance: this.balance,
-      jackpotPools: this.jackpotManager.getPools(),
-      currentJackpotSequence: [this.currentJackpotSequence[0], this.currentJackpotSequence[1]],
+      jackpotPool: this.jackpotManager.getPool(),
       phaseStartedAt: this.phaseStartTime,
       phaseEndsAt: this.phaseStartTime + this.phaseRemainingMs / this.speedMultiplier,
       timeRemainingMs: this.getTimeRemainingMs(),
@@ -170,12 +137,8 @@ export class ChainsGame {
     return [...this.streamHistory];
   }
 
-  getJackpotPools(): JackpotPools {
-    return this.jackpotManager.getPools();
-  }
-
-  getCurrentJackpotSequence(): [number, number] {
-    return [this.currentJackpotSequence[0], this.currentJackpotSequence[1]];
+  getJackpotPool(): number {
+    return this.jackpotManager.getPool();
   }
 
   getBalance(): number {
@@ -197,14 +160,12 @@ export class ChainsGame {
   getSimulatedActivity(): SimulatedActivity {
     return {
       playerCount: this.simulatedActivity.playerCount,
-      activeTicketsByTier: { ...this.simulatedActivity.activeTicketsByTier },
       recentEvents: [...this.simulatedActivity.recentEvents],
       digitPopularity: [...this.simulatedActivity.digitPopularity],
     };
   }
 
-  /** Subscribes to state changes; fires immediately with the current state.
-   * Returns an unsubscribe function. */
+  /** Subscribes to state changes; fires immediately. Returns unsubscribe. */
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     listener(this.getState());
@@ -217,13 +178,10 @@ export class ChainsGame {
   // Public: betting
   // ==========================================================================
 
-  /** Places a bet during the BETTING_OPEN phase. Validates digit selections,
-   * the jackpot combination, the 3-ticket-per-sequence concurrency cap
-   * (Sections 5 & 12), and balance sufficiency, then atomically creates all
-   * requested tier tickets, deducts the total stake, and funds the
-   * progressive jackpot pools (Section 18). All-or-nothing: if any
-   * selection is invalid, no tickets are created and no balance is
-   * touched. */
+  /** Places one or more links during BETTING_OPEN. All-or-nothing: if any link
+   * is invalid, the per-round cap would be exceeded, or the balance can't
+   * cover the total stake, nothing is created and nothing is debited. On
+   * success the stake is debited and each link funds the jackpot pool. */
   placeBet(request: BetRequest): PlaceBetResult {
     return this.placeBetInternal(request, {});
   }
@@ -232,14 +190,8 @@ export class ChainsGame {
   // Public: draw processing (core engine tick)
   // ==========================================================================
 
-  /**
-   * Resolves exactly one global draw and advances every live ticket by one
-   * step. If forcedDigit is omitted, the digit is produced by the RNG
-   * (respecting any queued forced digits from the demo panel). This is the
-   * fundamental, framework-agnostic unit of engine work — safe to call
-   * directly for headless testing (see Section 30 scenarios), and also what
-   * the internal phase scheduler calls automatically during live play.
-   */
+  /** Resolves exactly one global draw and advances every live link by one
+   * step. Links settling on this draw are paid here. */
   processDraw(forcedDigit?: number): DrawResult {
     this.drawIndex += 1;
 
@@ -260,56 +212,39 @@ export class ChainsGame {
       this.streamHistory.shift();
     }
 
-    // Advance every ticket by exactly this one draw. Each ticket only
-    // reacts if this draw index is its own "next" index, so independent
-    // ticket timelines never interfere with each other (Section 12).
     this.tickets = activateDueTickets(this.tickets, this.drawIndex);
     this.tickets = this.tickets.map((ticket) => evaluateTicketOnDraw(ticket, draw));
 
-    // Credit base wins that resolved on this exact draw. The base payout is
-    // locked in permanently and can never be reduced by jackpot outcomes
-    // (Section 13).
+    // Settlement for links whose 3rd draw was this one.
+    const jackpotWinners: Ticket[] = [];
     for (const ticket of this.tickets) {
-      if (ticket.resolvedBaseAtDrawIndex === draw.drawIndex && ticket.baseWinAmount !== null) {
-        this.balance = roundCurrency(this.balance + ticket.baseWinAmount);
+      if (ticket.settledAtDrawIndex !== draw.drawIndex) continue;
+      if (ticket.status === 'WON' && ticket.prizeAmount !== null) {
+        this.balance = roundCurrency(this.balance + ticket.prizeAmount);
+      } else if (ticket.status === 'JACKPOT_WON' && ticket.jackpotWinAmount === null) {
+        jackpotWinners.push(ticket);
       }
     }
 
-    // Resolve jackpot wins that completed on this exact draw. Winners are
-    // grouped by jackpot tier so that if multiple tickets qualify on the
-    // very same draw, the pool is split evenly between them (Section 17)
-    // before being reset to its seed value.
-    const winnersByTier = new Map<JackpotTierName, Ticket[]>();
-    for (const ticket of this.tickets) {
-      if (
-        ticket.status === 'JACKPOT_WON' &&
-        ticket.resolvedJackpotAtDrawIndex === draw.drawIndex &&
-        ticket.jackpotWinAmount === null
-      ) {
-        const list = winnersByTier.get(ticket.jackpotTier) ?? [];
-        list.push(ticket);
-        winnersByTier.set(ticket.jackpotTier, list);
-      }
-    }
-
-    for (const [jackpotTierName, winners] of winnersByTier.entries()) {
+    // One payout for the whole pool, split equally across the winning links,
+    // then the pool resets to its seed. Jackpot replaces the 1.5x/10x prize.
+    if (jackpotWinners.length > 0) {
       const payout = this.jackpotManager.payout(
-        jackpotTierName,
-        winners.map((w) => w.id),
+        jackpotWinners.map((w) => w.id),
         draw.drawIndex,
       );
-      for (const winner of winners) {
+      jackpotWinners.forEach((winner, i) => {
         const idx = this.tickets.findIndex((t) => t.id === winner.id);
-        if (idx === -1) continue;
+        if (idx === -1) return;
+        const share = payout.shares[i];
         const current = this.tickets[idx];
-        const totalReturn = roundCurrency((current.totalReturn ?? 0) + payout.perWinnerAmount);
         this.tickets[idx] = {
           ...current,
-          jackpotWinAmount: payout.perWinnerAmount,
-          totalReturn,
+          jackpotWinAmount: share,
+          totalReturn: roundCurrency(current.totalReturn + share),
         };
-        this.balance = roundCurrency(this.balance + payout.perWinnerAmount);
-      }
+        this.balance = roundCurrency(this.balance + share);
+      });
     }
 
     this.pruneTicketHistory();
@@ -323,9 +258,6 @@ export class ChainsGame {
   // Public: game loop scheduler (live/timed play)
   // ==========================================================================
 
-  /** Starts the autonomous timed game loop (BETTING_OPEN -> BETTING_CLOSED
-   * -> DRAWING -> RESULT -> ...), using the configured phase durations
-   * (Section 3). No-op if already running. */
   start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
@@ -333,8 +265,6 @@ export class ChainsGame {
     this.enterPhase('BETTING_OPEN', this.config.bettingDurationMs);
   }
 
-  /** Stops the autonomous loop entirely. Engine state (tickets, balance,
-   * stream, jackpots) is left untouched; only the timer stops. */
   stop(): void {
     this.isRunning = false;
     this.isPaused = false;
@@ -342,7 +272,6 @@ export class ChainsGame {
     this.emit();
   }
 
-  /** Pauses the current phase's countdown in place (Section 27). */
   pause(): void {
     if (!this.isRunning || this.isPaused) return;
     this.isPaused = true;
@@ -352,7 +281,6 @@ export class ChainsGame {
     this.emit();
   }
 
-  /** Resumes a paused game loop from exactly where it left off. */
   resume(): void {
     if (!this.isRunning || !this.isPaused) return;
     this.isPaused = false;
@@ -361,8 +289,6 @@ export class ChainsGame {
     this.emit();
   }
 
-  /** Changes playback speed (e.g. x1 / x5 / x20 for demos, Section 27)
-   * without losing progress through the current phase. */
   setSpeedMultiplier(multiplier: number): void {
     if (!Number.isFinite(multiplier) || multiplier <= 0) {
       throw new Error('Speed multiplier must be a positive number.');
@@ -377,8 +303,7 @@ export class ChainsGame {
     this.emit();
   }
 
-  /** Immediately skips whatever remains of the current phase and advances
-   * to the next one (Section 27, "Instant Step / Force Draw"). */
+  /** Skips whatever remains of the current phase. */
   instantStep(): void {
     this.clearTimer();
     this.phaseRemainingMs = 0;
@@ -398,17 +323,14 @@ export class ChainsGame {
   }
 
   // ==========================================================================
-  // Public: demo / developer controls (Section 27)
+  // Public: demo / developer controls
   // ==========================================================================
 
-  /** Queues a single digit to override the very next RNG-generated draw. */
   forceNextDraw(digit: number): void {
     this.rng.forceNext(digit);
     this.emit();
   }
 
-  /** Queues an ordered sequence of digits (e.g. to force a jackpot
-   * combination to land for a live pitch demo). */
   forceDrawSequence(digits: number[]): void {
     this.rng.forceSequence(digits);
     this.emit();
@@ -423,70 +345,48 @@ export class ChainsGame {
     return this.rng.peekForcedQueue();
   }
 
-  /** Creates a ticket on behalf of the demo panel, bypassing the
-   * BETTING_OPEN phase restriction so a presenter can drop in a ticket at
-   * any moment to narrate a scenario. */
-  createSimulatedTicket(tier: TicketTier, digits?: number[], jackpotSequence?: [number, number]): PlaceBetResult {
-    const resolvedDigits = digits ?? this.randomDigits(BASE_SEQUENCE_LENGTH[tier]);
-    const resolvedJackpot: [number, number] = jackpotSequence ?? [this.randomDigit(), this.randomDigit()];
-    return this.placeBetInternal(
-      { selections: [{ tier, digits: resolvedDigits }], jackpotSequence: resolvedJackpot },
-      { bypassPhaseCheck: true },
-    );
+  /** Demo helper: creates a link at any moment (ignores phase and the
+   * per-round cap). Digits default to random aux digits. */
+  createSimulatedTicket(digits?: number[]): PlaceBetResult {
+    const resolved = digits ?? this.randomDigits(LINK_LENGTH);
+    return this.placeBetInternal({ links: [resolved] }, { bypassPhaseCheck: true });
   }
 
-  /**
-   * Fabricates and instantly resolves a fully-won ticket for a given
-   * jackpot tier, purely for pitch demonstrations ("Create simulated
-   * jackpot win", Section 27). This does not consume any real stream
-   * draws and does not disturb any other ticket's progress; it pays out
-   * the live pool (with the standard split-and-reset logic) exactly as a
-   * real win would.
-   */
-  simulateJackpotWin(jackpotTierName: JackpotTierName): Ticket {
-    const tier = TIER_FOR_JACKPOT[jackpotTierName];
-    const digits = this.randomDigits(BASE_SEQUENCE_LENGTH[tier]);
-    const jackpotSequence: [number, number] = [this.randomDigit(), this.randomDigit()];
-
+  /** Demo helper: fabricates and instantly resolves a jackpot-winning link,
+   * paying the live pool with the standard reset. Consumes no stream draws. */
+  simulateJackpotWin(): Ticket {
     let ticket = createTicket({
-      tier,
-      digits,
-      jackpotSequence,
+      digits: this.randomDigits(LINK_LENGTH),
       startDrawIndex: this.drawIndex,
       createdAtDrawIndex: this.drawIndex,
       stake: this.config.ticketStake,
     });
 
-    const baseWinAmount = calculateBaseTotalReturn(tier, this.config.ticketStake);
-    const payout = this.jackpotManager.payout(jackpotTierName, [ticket.id], this.drawIndex);
+    const payout = this.jackpotManager.payout([ticket.id], this.drawIndex);
+    const share = payout.shares[0];
 
     ticket = {
       ...ticket,
       status: 'JACKPOT_WON',
-      baseProgress: ticket.baseSequence.length,
-      jackpotProgress: 2,
-      resolvedBaseAtDrawIndex: this.drawIndex,
-      resolvedJackpotAtDrawIndex: this.drawIndex,
-      baseWinAmount,
-      jackpotWinAmount: payout.perWinnerAmount,
-      totalReturn: roundCurrency(baseWinAmount + payout.perWinnerAmount),
+      hits: LINK_LENGTH,
+      settledAtDrawIndex: this.drawIndex,
+      jackpotWinAmount: share,
+      totalReturn: share,
     };
 
-    this.balance = roundCurrency(this.balance + ticket.totalReturn);
+    this.balance = roundCurrency(this.balance + share);
     this.tickets.push(ticket);
     this.pruneTicketHistory();
     this.emit();
     return ticket;
   }
 
-  /** Directly overrides a jackpot pool balance for demo purposes. */
-  forceJackpotPool(jackpotTierName: JackpotTierName, amount: number): void {
-    this.jackpotManager.forceSetPool(jackpotTierName, amount);
+  forceJackpotPool(amount: number): void {
+    this.jackpotManager.forceSetPool(amount);
     this.emit();
   }
 
-  /** Full reset: balance, tickets, stream, jackpots, draw index, and phase
-   * all return to their starting configuration (Section 27, "Reset Game"). */
+  /** Full reset: balance, links, stream, pool and phase. */
   reset(): void {
     this.clearTimer();
     this.isRunning = false;
@@ -499,38 +399,28 @@ export class ChainsGame {
     this.tickets = [];
     this.balance = this.config.startingBalance;
 
-    this.jackpotManager.reset(this.seedJackpotPools);
+    this.jackpotManager.reset();
     this.rng.reset();
 
     this.phase = 'BETTING_OPEN';
     this.phaseDurationMs = this.config.bettingDurationMs;
     this.phaseRemainingMs = this.phaseDurationMs;
     this.phaseStartTime = Date.now();
-    this.currentJackpotSequence = [this.randomDigit(), this.randomDigit()];
 
     this.simulatedActivity = this.generateSimulatedActivity();
     this.simulatedActivity = { ...this.simulatedActivity, digitPopularity: this.regenerateDigitPopularity() };
     this.emit();
   }
 
-  /** Resets only the demo wallet balance, leaving tickets/stream/jackpots
-   * untouched (Section 27, "Reset Balance"). */
   resetBalance(): void {
     this.balance = this.config.startingBalance;
     this.emit();
   }
 
-  /** Cleans up timers and subscribers. Call when the engine instance is no
-   * longer needed (e.g. on UI unmount).
-   *
-   * Resets isRunning/isPaused back to false (not just clearing the timer),
-   * so a later start() on the same instance actually re-arms the loop
-   * instead of silently no-op'ing on its `if (this.isRunning) return;`
-   * guard. This matters in practice: React's StrictMode (dev mode only)
-   * mounts every component twice — mount, unmount, mount again — which
-   * fires this destroy() once before the "real" mount's start() call. Without
-   * this reset, the engine ends up permanently believing it's running with
-   * no timer actually scheduled. */
+  /** Cleans up timers and subscribers. Resets isRunning/isPaused so a later
+   * start() on the same instance re-arms the loop (React StrictMode mounts,
+   * unmounts and mounts again in dev, firing destroy() before the real
+   * start()). */
   destroy(): void {
     this.clearTimer();
     this.isRunning = false;
@@ -542,108 +432,52 @@ export class ChainsGame {
   // Private: betting internals
   // ==========================================================================
 
-    private placeBetInternal(request: BetRequest, options: PlaceBetOptions): PlaceBetResult {
+  private placeBetInternal(request: BetRequest, options: PlaceBetOptions): PlaceBetResult {
     if (!options.bypassPhaseCheck && this.phase !== 'BETTING_OPEN') {
       return this.betFailure('Betting is currently closed for this round.');
     }
 
-    if (!request || !Array.isArray(request.selections) || request.selections.length === 0) {
-      return this.betFailure('Select a tier (LOW, MEDIUM, or HIGH) before placing a bet.');
-    }
-    // All selections in one request must share the same tier (Section 6's
-    // "one volatility tier per round" rule is about TIER, not selection
-    // count) — this is what lets LOW multi-pick submit N independent $1
-    // LOW selections in a single atomic request, generalized from the
-    // prior single-selection-only shape.
-    const tiers = new Set(request.selections.map((s) => s.tier));
-    if (tiers.size > 1) {
-      return this.betFailure('Only one volatility tier (LOW, MEDIUM, or HIGH) may be selected per betting round.');
-    }
-    const tier = request.selections[0].tier;
-
-    // Multi-selection requests are the LOW-multi-pick mechanic specifically
-    // — deliberately kept distinct from Combo (which permutes ONE typed
-    // sequence into possibilities). Mixing the two in one request would
-    // blur that distinction, so it's rejected explicitly rather than
-    // silently allowed.
-    if (request.selections.length > 1 && request.selections.some((s) => s.isCombo)) {
-      return this.betFailure('Combo bets cannot be combined with multiple picks in the same request.');
+    if (!request || !Array.isArray(request.links) || request.links.length === 0) {
+      return this.betFailure(`Pick ${LINK_LENGTH} digits before placing a bet.`);
     }
 
     try {
-      for (const selection of request.selections) {
-        if (selection.isCombo) {
-          validateComboDigits(selection.tier, selection.digits);
-        } else {
-          validateBaseDigits(selection.tier, selection.digits);
-        }
-      }
-      validateJackpotSequence(request.jackpotSequence);
+      request.links.forEach((digits) => validateLinkDigits(digits));
     } catch (error) {
       return this.betFailure(error instanceof Error ? error.message : 'Invalid bet.');
     }
 
-    // Straight bets are a single "possibility" (the sequence as entered);
-    // combo bets expand into every unique ordering (Section 5b); a
-    // multi-selection LOW-pick request contributes one possibility per
-    // selection. Every downstream step treats `possibilities` uniformly,
-    // same as before.
-    const possibilities: number[][] = request.selections.flatMap((selection) =>
-      selection.isCombo ? expandComboPossibilities(selection.digits) : [selection.digits],
-    );
-
-    // Concurrency cap check now accounts for possibilities repeated WITHIN
-    // this same request too (e.g. a LOW multi-pick batch containing the
-    // same digit twice), not just against already-active tickets — a
-    // request that would itself push a sequence over the cap is rejected
-    // atomically, same as a request that collides with existing tickets.
-    const requestCountBySequence = new Map<string, number>();
-    for (const possibility of possibilities) {
-      const key = possibility.join(',');
-      const countInRequest = (requestCountBySequence.get(key) ?? 0) + 1;
-      requestCountBySequence.set(key, countInRequest);
-      const activeCount = countActiveWithSameSequence(this.tickets, tier, possibility);
-      if (activeCount + countInRequest > MAX_CONCURRENT_TICKETS_PER_SEQUENCE) {
+    // Per-round cap. A "round" is the span between two draws, so links created
+    // in the current round are exactly those with createdAtDrawIndex equal to
+    // the current drawIndex. No extra state to reset.
+    if (!options.bypassPhaseCheck) {
+      const alreadyThisRound = this.tickets.filter((t) => t.createdAtDrawIndex === this.drawIndex).length;
+      if (alreadyThisRound + request.links.length > MAX_LINKS_PER_ROUND) {
         return this.betFailure(
-          `Maximum of ${MAX_CONCURRENT_TICKETS_PER_SEQUENCE} concurrent ${tier} tickets on ` +
-            `${possibility.join(' → ')} already running. Wait for one to resolve before betting it again.`,
+          `Maximum of ${MAX_LINKS_PER_ROUND} links per round ` +
+            `(${alreadyThisRound} already placed, ${request.links.length} requested).`,
         );
       }
     }
 
-    const totalStake = calculateTotalStake(possibilities.length, this.config.ticketStake);
+    const totalStake = calculateTotalStake(request.links.length, this.config.ticketStake);
     if (this.balance < totalStake) {
-      return this.betFailure(`Insufficient balance. Need $${totalStake.toFixed(2)}, have $${this.balance.toFixed(2)}.`);
+      return this.betFailure(`Insufficient balance. Need ${money(totalStake)}, have ${money(this.balance)}.`);
     }
 
     const startDrawIndex = this.drawIndex + 1;
-    // Build tickets selection-by-selection so each combo selection keeps
-    // its own comboGroupId/comboDigits, while multi-pick selections (never
-    // combo, per the guard above) get null for both — explicitly NOT
-    // grouped together, per your confirmed "no combo-style grouping for
-    // multi-pick" decision.
-    const newTickets: Ticket[] = request.selections.flatMap((selection) => {
-      const selectionPossibilities = selection.isCombo ? expandComboPossibilities(selection.digits) : [selection.digits];
-      const comboGroupId = selection.isCombo ? this.generateComboGroupId() : null;
-      return selectionPossibilities.map((digits) =>
-        createTicket({
-          tier: selection.tier,
-          digits,
-          jackpotSequence: request.jackpotSequence,
-          startDrawIndex,
-          createdAtDrawIndex: this.drawIndex,
-          stake: this.config.ticketStake,
-          comboGroupId,
-          comboDigits: selection.isCombo ? selection.digits : null,
-        }),
-      );
-    });
+    const newTickets: Ticket[] = request.links.map((digits) =>
+      createTicket({
+        digits,
+        startDrawIndex,
+        createdAtDrawIndex: this.drawIndex,
+        stake: this.config.ticketStake,
+      }),
+    );
 
-    // Jackpot funding is contributed once per possibility, since the total
-    // confirmed stake is what Section 18 bases contributions on (mirrors
-    // the existing per-ticket contribution for straight bets).
-    for (let i = 0; i < possibilities.length; i += 1) {
-      this.jackpotManager.contribute(tier, this.config.ticketStake);
+    // One contribution per link, at bet confirmation.
+    for (let i = 0; i < newTickets.length; i += 1) {
+      this.jackpotManager.contribute(this.config.ticketStake);
     }
 
     this.balance = roundCurrency(this.balance - totalStake);
@@ -652,20 +486,13 @@ export class ChainsGame {
 
     return {
       success: true,
-       message:
-       request.selections.length > 1
-          ? `${newTickets.length} links placed, total stake $${totalStake.toFixed(2)}.`
-          : request.selections[0].isCombo
-            ? `Combo bet placed: ${newTickets.length} links, total stake $${totalStake.toFixed(2)}.`
-            : `Bet placed: 1 link, total stake $${totalStake.toFixed(2)}.`,
+      message:
+        newTickets.length === 1
+          ? `Bet placed: 1 link, total stake ${money(totalStake)}.`
+          : `${newTickets.length} links placed, total stake ${money(totalStake)}.`,
       ticketIds: newTickets.map((t) => t.id),
       totalStake,
     };
-  }
-
-  private generateComboGroupId(): string {
-    this.comboGroupCounter += 1;
-    return `combo-${this.drawIndex}-${this.comboGroupCounter}`;
   }
 
   private betFailure(message: string): PlaceBetResult {
@@ -683,25 +510,18 @@ export class ChainsGame {
     this.phaseStartTime = Date.now();
 
     if (phase === 'BETTING_OPEN') {
-      // Section 9: a fresh 2-digit jackpot combination is randomly
-      // generated and displayed at the start of every betting round. The
-      // player may still edit it before confirming a bet.
-      this.currentJackpotSequence = [this.randomDigit(), this.randomDigit()];
-      // Cosmetic "table heat" realism fix: one low-variance popularity
-      // bias per round instead of fully re-randomizing every draw. See
-      // regenerateDigitPopularity() below.
+      // Cosmetic: one low-variance digit-popularity bias per round.
       this.simulatedActivity = { ...this.simulatedActivity, digitPopularity: this.regenerateDigitPopularity() };
     }
 
     if (phase === 'DRAWING') {
       // processDraw() already performs its own emit() at the end. Emitting
-      // again below would double-fire this exact state to subscribers —
-      // useGame.ts relies on exactly ONE emit per new draw to correctly
-      // defer ticket outcome sounds until the wheel visually lands.
+      // again would double-fire this state — useGame.ts relies on exactly ONE
+      // emit per new draw to defer outcome sounds until the wheel lands.
       this.processDraw();
       this.armTimer();
       return;
-     }
+    }
 
     this.armTimer();
     this.emit();
@@ -749,55 +569,39 @@ export class ChainsGame {
   // Private: bookkeeping helpers
   // ==========================================================================
 
-  /** Caps retained ticket history so long demo sessions don't grow memory
-   * without bound, while never discarding any ticket that's still live. */
+  /** Caps retained settled links; never discards a live one. Keeps array
+   * order (= placement order) and drops the OLDEST settled links first, so
+   * history stays chronological. */
   private pruneTicketHistory(): void {
-    const active = this.tickets.filter((t) => !isTerminal(t.status));
-    const terminal = this.tickets.filter((t) => isTerminal(t.status));
-    const trimmedTerminal = terminal.slice(Math.max(0, terminal.length - MAX_TICKET_HISTORY));
-    this.tickets = [...active, ...trimmedTerminal];
-  }
-
-  private randomDigit(): number {
-    return this.rng.generateAuxDigit();
+    let excess = this.tickets.filter((t) => isTerminal(t.status)).length - MAX_TICKET_HISTORY;
+    if (excess <= 0) return;
+    this.tickets = this.tickets.filter((t) => {
+      if (excess > 0 && isTerminal(t.status)) {
+        excess -= 1;
+        return false;
+      }
+      return true;
+    });
   }
 
   private randomDigits(count: number): number[] {
-    return Array.from({ length: count }, () => this.randomDigit());
+    return Array.from({ length: count }, () => this.rng.generateAuxDigit());
   }
 
-  /**
-   * Produces cosmetic "other players" activity for the live-table feel
-   * (Section 28). Entirely simulated, never represents real accounts, and
-   * has zero influence on the real stream, tickets, or payouts.
-   */
+  /** Cosmetic "other players" activity. Never influences stream or payouts. */
   private generateSimulatedActivity(draw?: DrawResult): SimulatedActivity {
     const playerCount = 80 + Math.floor(Math.random() * 120);
-    const activeTicketsByTier: Record<TicketTier, number> = {
-      LOW: Math.floor(playerCount * (0.35 + Math.random() * 0.15)),
-      MEDIUM: Math.floor(playerCount * (0.18 + Math.random() * 0.12)),
-      HIGH: Math.floor(playerCount * (0.08 + Math.random() * 0.08)),
-    };
-
-    // Simulated per-digit betting popularity, purely cosmetic — a random
-    // weighted split across 0-9. No longer regenerated here — it's now
-    // driven once per round by regenerateDigitPopularity() (see
-    // enterPhase/reset), so it carries through unchanged across draw-tick
-    // calls to this method instead of jumping every draw.
     const digitPopularity = this.simulatedActivity.digitPopularity;
 
     const recentEvents = [...this.simulatedActivity.recentEvents];
     if (draw) {
       const eventCount = 1 + Math.floor(Math.random() * 3);
       for (let i = 0; i < eventCount; i += 1) {
-        const tiers: TicketTier[] = ['LOW', 'MEDIUM', 'HIGH'];
-        const tier = tiers[Math.floor(Math.random() * tiers.length)];
-        const outcome: SimulatedActivityEvent['outcome'] = Math.random() < 0.5 ? 'WIN' : 'LOST';
+        const outcome: SimulatedActivityEvent['outcome'] = Math.random() < 0.27 ? 'WIN' : 'LOST';
         const playerLabel = `Player #${1000 + Math.floor(Math.random() * SIMULATED_PLAYER_LABEL_POOL_SIZE)}`;
         recentEvents.unshift({
           id: `sim-${draw.drawIndex}-${i}-${Math.random().toString(36).slice(2, 7)}`,
           playerLabel,
-          tier,
           outcome,
           atDrawIndex: draw.drawIndex,
         });
@@ -807,15 +611,11 @@ export class ChainsGame {
       }
     }
 
-    return { playerCount, activeTicketsByTier, recentEvents, digitPopularity };
+    return { playerCount, recentEvents, digitPopularity };
   }
 
-   /** Low-variance simulated "which digits are popular this round" bias:
-   * mostly near-equal with 1-2 digits nudged slightly hotter, rather than
-   * a fully random weighted split every tick. Regenerated once per fresh
-   * BETTING_OPEN round (see enterPhase/reset) — the heat map component
-   * then drifts its displayed bars toward this target with small local
-   * jitter, only while betting is open. */
+  /** Low-variance simulated "popular digits this round" bias, regenerated once
+   * per fresh BETTING_OPEN (see MultiplayerSim for the drift animation). */
   private regenerateDigitPopularity(): number[] {
     const hotCount = 1 + Math.floor(Math.random() * 2);
     const hotDigits = new Set<number>();

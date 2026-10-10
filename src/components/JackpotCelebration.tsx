@@ -13,8 +13,6 @@ const AUTO_DISMISS_MS = 4200;
 const CONFETTI_COLORS = ['#eab308', '#facc15', '#fde68a', '#f59e0b', '#ffffff'];
 const CONFETTI_COUNT = 36;
 
-const TIER_LABEL: Record<string, string> = { MINI: 'LOW', MIDI: 'MIDI', GRAND: 'HIGH' };
-
 export function JackpotCelebration() {
   const { jackpotCelebration, dismissJackpotCelebration } = useGame();
 
@@ -57,9 +55,6 @@ export function JackpotCelebration() {
       </div>
 
       <div className="relative flex flex-col items-center gap-3 rounded-3xl border border-[#eab308]/40 bg-[#141414]/90 px-10 py-10 text-center shadow-[0_0_80px_-12px_rgba(234,179,8,0.65)]">
-        <span className="font-mono text-xs font-bold uppercase tracking-[0.4em] text-[#eab308]/80">
-          {TIER_LABEL[jackpotCelebration.tier] ?? jackpotCelebration.tier}
-        </span>
         <span className="animate-pulse font-mono text-4xl font-black uppercase tracking-[0.15em] text-[#eab308] sm:text-5xl">
           Jackpot Won
         </span>

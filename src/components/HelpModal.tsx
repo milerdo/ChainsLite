@@ -1,21 +1,13 @@
 // ============================================================================
-// CHAINS — HelpModal
-// "HOW TO PLAY" reference. All RTP figures and the RNG disclaimer are
-// imported directly from src/game/constants.ts rather than re-typed here,
-// so this modal can never silently drift out of sync with the engine's
-// actual configured values.
+// CHAINS LITE — HelpModal
+// All figures come from constants.ts / rtp.ts, never re-typed here.
 // ============================================================================
 
 import { useEffect, type ReactNode } from 'react';
-import { BASE_MULTIPLIERS, RNG_DISCLAIMER } from '../game/constants';
-import { houseEdge, overallRtp, totalRtp } from '../game/rtp';
-import { formatPercent } from '../utils/format';
+import { INITIAL_JACKPOT_POOL, LINK_LENGTH, MAX_LINKS_PER_ROUND, PRIZE_MULTIPLIERS, RNG_DISCLAIMER } from '../game/constants';
+import { houseEdge, totalRtp } from '../game/rtp';
+import { formatCurrency, formatPercent } from '../utils/format';
 
-const BET_ROWS = [
-  { label: 'LOW', pick: '1 digit', tier: 'LOW' },
-  { label: 'MIDI', pick: '2 digits, in order', tier: 'MEDIUM' },
-  { label: 'HIGH', pick: '3 digits, in order', tier: 'HIGH' },
-] as const;
 interface HelpModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -57,74 +49,74 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
           </button>
         </div>
 
-                <div className="mt-6 flex flex-col gap-6 text-sm leading-relaxed text-white/70">
-          <Section title="Betting and base payouts">
-            <p>Pick 1–3 digits and place a $1 bet.</p>
-            <table className="mt-3 w-full font-mono text-xs">
+        <div className="mt-6 flex flex-col gap-6 text-sm leading-relaxed text-white/70">
+          <Section title="Your link">
+            <p>
+              Pick {LINK_LENGTH} digits, in order, and place a {formatCurrency(1)} bet. Your link starts on the next draw and
+              lives exactly {LINK_LENGTH} draws. Draw 1 is checked against your 1st digit, draw 2 against your 2nd, draw 3
+              against your 3rd. A miss does not end the link. You can place up to {MAX_LINKS_PER_ROUND} links per round.
+            </p>
+          </Section>
+
+          <Section title="Prizes">
+            <table className="w-full font-mono text-xs">
               <thead>
                 <tr className="text-left uppercase tracking-[0.15em] text-white/40">
-                  <th className="pb-2 font-medium">Bet</th>
-                  <th className="pb-2 font-medium">Pick</th>
-                  <th className="pb-2 text-right font-medium">Total Payout</th>
+                  <th className="pb-2 font-medium">Hits</th>
+                  <th className="pb-2 text-right font-medium">Total return</th>
                 </tr>
               </thead>
               <tbody>
-                {BET_ROWS.map((row) => (
-                  <tr key={row.label} className="border-t border-white/[0.07]">
-                    <td className="py-2 font-semibold text-white">{row.label}</td>
-                    <td className="py-2 text-white/60">{row.pick}</td>
-                    <td className="py-2 text-right font-bold text-[#eab308]">{BASE_MULTIPLIERS[row.tier]}×</td>
-                  </tr>
-                ))}
+                <tr className="border-t border-white/[0.07]">
+                  <td className="py-2 text-white/60">0</td>
+                  <td className="py-2 text-right text-white/40">—</td>
+                </tr>
+                <tr className="border-t border-white/[0.07]">
+                  <td className="py-2 text-white/60">1</td>
+                  <td className="py-2 text-right font-bold text-[#eab308]">{PRIZE_MULTIPLIERS[1]}×</td>
+                </tr>
+                <tr className="border-t border-white/[0.07]">
+                  <td className="py-2 text-white/60">2</td>
+                  <td className="py-2 text-right font-bold text-[#eab308]">{PRIZE_MULTIPLIERS[2]}×</td>
+                </tr>
+                <tr className="border-t border-white/[0.07]">
+                  <td className="py-2 text-white/60">{LINK_LENGTH}</td>
+                  <td className="py-2 text-right font-bold text-[#eab308]">JACKPOT</td>
+                </tr>
               </tbody>
             </table>
-            <p className="mt-3">
-              Your digits must match the next draws, in order. One miss and the bet is lost. Complete the
-              sequence and your payout is instant. One tier per round.
-            </p>
-            <ul className="mt-3 flex flex-col gap-1.5">
-              <li><span className="font-mono font-semibold text-white">LOW</span> —  add up to 3 different digits, each one is a separate $1 link.</li>
-              <li><span className="font-mono font-semibold text-white">COMBO</span> (MIDI and HIGH) — every possible order is a separate $1 link.</li>
-            </ul>
+            <p className="mt-3">Prizes are paid when your link settles, on its 3rd draw.</p>
           </Section>
 
           <Section title="Jackpot">
             <p>
-              Select a 2-digit jackpot pair when you bet. After a base win, the next 2 draws must match your selection, in order,
-              to win your tier's jackpot. Miss and you keep your original win.
+              The pool starts at {formatCurrency(INITIAL_JACKPOT_POOL)}, grows with every bet, and resets after a win. Hit all{' '}
+              {LINK_LENGTH} digits to win the whole pool instead of the 1- or 2-hit prize. Simultaneous winners split it equally.
             </p>
           </Section>
 
           <Section title="Example">
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 font-mono text-xs">
-              <p className="text-white/50">HIGH 4 → 2 → 3 · Jackpot 7 → 4</p>
+              <p className="text-white/50">Link 4 → 2 → 3</p>
               <div className="mt-3 flex flex-col gap-1.5">
-                <ExampleRow label="Draw 1" value="4" note="✓ match" tone="win" />
-                <ExampleRow label="Draw 2" value="2" note="✓ match" tone="win" />
-                <ExampleRow label="Draw 3" value="3" note={`✓ WIN — ${BASE_MULTIPLIERS.HIGH}× paid`} tone="win" />
-                <ExampleRow label="Draw 4" value="7" note="✓ jackpot 1/2" tone="win" />
-                <ExampleRow label="Draw 5" value="4" note="✓ HIGH JACKPOT WON" tone="jackpot" />
+                <ExampleRow label="Draw 1" value="4" note="✓ hit" tone="win" />
+                <ExampleRow label="Draw 2" value="9" note="✕ miss, link stays alive" tone="miss" />
+                <ExampleRow label="Draw 3" value="3" note={`✓ hit — 2 hits, ${PRIZE_MULTIPLIERS[2]}× paid`} tone="win" />
               </div>
             </div>
           </Section>
 
           <Section title="RTP - Return to Player">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <RtpStat label="LOW" value={formatPercent(totalRtp('LOW'))} />
-              <RtpStat label="MIDI" value={formatPercent(totalRtp('MEDIUM'))} />
-              <RtpStat label="HIGH" value={formatPercent(totalRtp('HIGH'))} />
-              <RtpStat label="Average" value={formatPercent(overallRtp())} highlight />
+            <div className="grid grid-cols-2 gap-2">
+              <RtpStat label="Total RTP" value={formatPercent(totalRtp())} highlight />
+              <RtpStat label="House edge" value={formatPercent(houseEdge())} />
             </div>
-            <p className="mt-2 text-xs text-white/45">
-              Includes the jackpot share, funded entirely by bets. Average house edge: {formatPercent(houseEdge())}.
-            </p>
+            <p className="mt-2 text-xs text-white/45">Includes the jackpot share funded by bets and the operator seed.</p>
           </Section>
 
           <Section title="Demo">
             <p className="text-xs text-white/45">{RNG_DISCLAIMER}</p>
-            <p className="mt-1.5 text-xs text-white/45">
-              Player counts, the heat map and chat are simulated.
-            </p>
+            <p className="mt-1.5 text-xs text-white/45">Player counts, the heat map and chat are simulated.</p>
           </Section>
         </div>
       </div>
@@ -141,24 +133,14 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function ExampleRow({
-  label,
-  value,
-  note,
-  tone,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  tone: 'win' | 'jackpot';
-}) {
+function ExampleRow({ label, value, note, tone }: { label: string; value: string; note: string; tone: 'win' | 'miss' }) {
   return (
     <div className="flex items-center gap-3">
       <span className="w-14 shrink-0 text-white/40">{label}</span>
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/[0.06] font-bold text-white">
         {value}
       </span>
-      <span className={tone === 'jackpot' ? 'font-semibold text-[#eab308]' : 'text-emerald-300'}>{note}</span>
+      <span className={tone === 'miss' ? 'text-red-300' : 'text-emerald-300'}>{note}</span>
     </div>
   );
 }

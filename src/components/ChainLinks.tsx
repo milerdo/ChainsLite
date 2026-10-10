@@ -1,35 +1,26 @@
 import { DIGIT_COLORS } from '../utils/digitColors';
+import { LINK_LENGTH } from '../game/constants';
+import { isTerminal } from '../game/ticket';
 import type { Ticket } from '../game/types';
-import { isJackpotRelevant } from '../game/ticket';
 
-type CircleState = 'pending' | 'matched' | 'failed' | 'current';
+type CircleState = 'pending' | 'current' | 'hit' | 'miss';
 
-function baseCircleState(ticket: Ticket, index: number): CircleState {
-  if (index < ticket.baseProgress) return 'matched';
-  if (ticket.status === 'LOST' && index === ticket.baseProgress) return 'failed';
-  if ((ticket.status === 'WAITING' || ticket.status === 'ACTIVE') && index === ticket.baseProgress) return 'current';
+/** Derived from the ticket's own drawLog: no duplicated per-position state. */
+function circleState(ticket: Ticket, index: number): CircleState {
+  const entry = ticket.drawLog[index];
+  if (entry) return entry.matched ? 'hit' : 'miss';
+  if (!isTerminal(ticket.status) && index === ticket.drawLog.length) return 'current';
   return 'pending';
 }
 
-function jackpotCircleState(ticket: Ticket, index: number): CircleState {
-  if (index < ticket.jackpotProgress) return 'matched';
-  if (ticket.status === 'JACKPOT_LOST' && index === ticket.jackpotProgress) return 'failed';
-  const isQualifying = ticket.status === 'BASE_WON' || ticket.status === 'JACKPOT_STEP_1' || ticket.status === 'JACKPOT_STEP_2';
-  if (isQualifying && index === ticket.jackpotProgress) return 'current';
-  return 'pending';
-}
-
-const JACKPOT_TIER_DISPLAY: Record<string, string> = { MINI: 'LOW', MIDI: 'MIDI', GRAND: 'HIGH' };
-
-/** Background stays tinted to the digit's own wheel color at every state
- * (that's the "match the wheel" identity); border/ring carries the
- * match-progress signal (pending/current/matched/failed) on top of it. */
+/** Background stays tinted to the digit's wheel color; the border carries
+ * the progress signal (pending / current / hit / miss). */
 function circleColors(digit: number, state: CircleState): { bg: string; border: string } {
   const c = DIGIT_COLORS[digit];
   switch (state) {
-    case 'matched':
+    case 'hit':
       return { bg: `${c}80`, border: '#34d399' };
-    case 'failed':
+    case 'miss':
       return { bg: `${c}40`, border: '#f87171' };
     case 'current':
       return { bg: `${c}80`, border: '#eab308' };
@@ -39,8 +30,8 @@ function circleColors(digit: number, state: CircleState): { bg: string; border: 
 }
 
 const TEXT: Record<CircleState, string> = {
-  matched: 'text-white',
-  failed: 'text-red-100',
+  hit: 'text-white',
+  miss: 'text-red-100',
   current: 'text-white',
   pending: 'text-white/55',
 };
@@ -65,7 +56,7 @@ export function ChainCircle({ digit, state, size = 'md' }: CircleProps) {
       ].join(' ')}
     >
       {digit}
-      {state === 'failed' && (
+      {state === 'miss' && (
         <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-sm font-black text-red-400">
           ✕
         </span>
@@ -74,119 +65,34 @@ export function ChainCircle({ digit, state, size = 'md' }: CircleProps) {
   );
 }
 
-function Link({ size = 'md' }: { size?: 'xs' | 'sm' | 'md' }) {
-  const width = size === 'xs' ? 'w-2' : size === 'sm' ? 'w-2' : 'w-3';
+function Connector({ size }: { size: 'xs' | 'sm' | 'md' }) {
+  const width = size === 'md' ? 'w-3' : 'w-2';
   return <span className={`h-[2px] shrink-0 ${width} bg-white/15`} />;
 }
 
 interface LinkChainProps {
   ticket: Ticket;
   size?: 'xs' | 'sm' | 'md';
-  showJackpot?: boolean;
 }
 
-export function LinkChain({ ticket, size = 'md', showJackpot = true }: LinkChainProps) {
+export function LinkChain({ ticket, size = 'md' }: LinkChainProps) {
+  const live = !isTerminal(ticket.status);
+  const spin = Math.min(ticket.drawLog.length + 1, LINK_LENGTH);
   return (
-   <div className="flex flex-nowrap items-center">
+    <div className="flex flex-nowrap items-center">
       <span className="flex shrink-0 items-center">
-        {ticket.baseSequence.map((digit, i) => (
-          <span key={`b-${i}`} className="flex items-center">
-            {i > 0 && <Link size={size} />}
-            <ChainCircle digit={digit} state={baseCircleState(ticket, i)} size={size} />
+        {ticket.digits.map((digit, i) => (
+          <span key={i} className="flex items-center">
+            {i > 0 && <Connector size={size} />}
+            <ChainCircle digit={digit} state={circleState(ticket, i)} size={size} />
           </span>
         ))}
       </span>
-      {showJackpot && (
-        <span className="flex shrink-0 items-center">
-          <Link size={size} />
-          <span className="flex shrink-0 items-center whitespace-nowrap rounded-full border border-[#eab308]/50 bg-transparent px-1.5 py-0.5">
-          {/* was: border-[#eab308]/40 bg-[#eab308]/15 — filled amber
-              competed visually with the chain circles; outline-only reads
-              as a frame around the jackpot progress instead. */}
-            {ticket.jackpotSequence.map((digit, i) => (
-              <span key={`j-${i}`} className="flex items-center">
-                {i > 0 && <Link size={size} />}
-                <ChainCircle digit={digit} state={jackpotCircleState(ticket, i)} size={size} />
-              </span>
-            ))}
-            {size !== 'xs' && isJackpotRelevant(ticket.status) && (
-              <span className="ml-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-[#eab308]">
-                {JACKPOT_TIER_DISPLAY[ticket.jackpotTier]}
-              </span>
-            )}
-          </span>
+      {live && (
+        <span className="ml-2.5 shrink-0 font-mono text-[10px] uppercase tracking-[0.1em] text-white/40">
+          spin {spin} of {LINK_LENGTH}
         </span>
       )}
-    </div>
-  );
-}
-
-/** Links share one jackpot pill when their jackpot state is identical.
- * Links not yet in qualification all fall into one pill-less 'base' group. */
-function jackpotGroupKey(t: Ticket): string {
-  return isJackpotRelevant(t.status)
-    ? `${t.jackpotTier}|${t.jackpotSequence.join(',')}|${t.jackpotProgress}|${t.status}`
-    : 'base';
-}
-
-function BaseChain({ ticket, size }: { ticket: Ticket; size: 'xs' | 'sm' | 'md' }) {
-  return (
-    <span className="flex shrink-0 items-center">
-      {ticket.baseSequence.map((digit, i) => (
-        <span key={i} className="flex items-center">
-          {i > 0 && <Link size={size} />}
-          <ChainCircle digit={digit} state={baseCircleState(ticket, i)} size={size} />
-        </span>
-      ))}
-    </span>
-  );
-}
-
-/** Always-rendered, fixed-height (h-10) single-row summary of active links,
- * shown above the betting panel on mobile. Fixed height + no wrap means it
- * never moves the layout when links appear/resolve. The leading count stays
- * accurate if the row clips; full cards live in TicketDrawer once locked. */
-export function LinkStrip({ tickets }: { tickets: Ticket[] }) {
-  if (tickets.length === 0) return null;
-  const groups = new Map<string, Ticket[]>();
-  for (const t of tickets) {
-    const key = jackpotGroupKey(t);
-    const list = groups.get(key);
-    if (list) list.push(t);
-    else groups.set(key, [t]);
-  }
-
-  return (
-    <div
-      aria-label="Active links"
-      className="flex h-10 shrink-0 items-center gap-3 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.02] px-2.5"
-    >
-      <>
-          <span className="shrink-0 font-mono text-[10px] font-bold tabular-nums text-white/40">{tickets.length}</span>
-          {[...groups.entries()].map(([key, group]) => {
-            const lead = group[0];
-            return (
-              <span key={key} className="flex shrink-0 items-center gap-1.5">
-                {group.map((t) => (
-                  <BaseChain key={t.id} ticket={t} size="xs" />
-                ))}
-                {key !== 'base' && (
-                  <span className="flex shrink-0 items-center rounded-full border border-[#eab308]/50 px-1.5 py-0.5">
-                    {lead.jackpotSequence.map((digit, i) => (
-                      <span key={i} className="flex items-center">
-                        {i > 0 && <Link size="xs" />}
-                        <ChainCircle digit={digit} state={jackpotCircleState(lead, i)} size="xs" />
-                      </span>
-                    ))}
-                     <span className="ml-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-[#eab308]">
-                      {JACKPOT_TIER_DISPLAY[lead.jackpotTier]}
-                    </span>
-                  </span>
-                )}
-              </span>
-            );
-          })}
-        </>
     </div>
   );
 }

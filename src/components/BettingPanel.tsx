@@ -1,649 +1,181 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '../hooks/useGame';
 import { playUiClick } from '../utils/audio';
-import { formatCurrency } from '../utils/format';
-import { calculateComboStake, countComboPossibilities } from '../game/combo';
-import { calculateTotalStake } from '../game/payouts';
-import { BASE_MULTIPLIERS, BASE_SEQUENCE_LENGTH, TICKET_STAKE } from '../game/constants';
+import { formatCompactCurrency, formatCurrency } from '../utils/format';
+import { LINK_LENGTH, MAX_LINKS_PER_ROUND, PRIZE_MULTIPLIERS, TICKET_STAKE } from '../game/constants';
 import { DIGIT_COLORS } from '../utils/digitColors';
-import type { BetRequest, BetSelection, TicketTier } from '../game/types';
-
-const MAX_DIGIT_SLOTS = BASE_SEQUENCE_LENGTH.HIGH; // 3 — the widest entry, spec Section 5a
-const AUTO_BET_PRESETS = [5, 10, 25, 50];
-
-/** LOW multi-pick: up to 3 independent $1 LOW picks batched into one
- * atomic request (Milestone 4). Matches MAX_CONCURRENT_TICKETS_PER_SEQUENCE
- * and the existing 3-digit-slot ceiling used by HIGH, so the whole betting
- * UI shares one consistent "max 3" rule rather than an unexplained
- * different number for LOW specifically. */
-const MAX_LOW_PICKS = 3;
-
-const TIER_META: Record<TicketTier, { odds: string; description: string }> = {
-  LOW: { odds: `${BASE_MULTIPLIERS.LOW}x`, description: '1 digit' },
-  MEDIUM: { odds: `${BASE_MULTIPLIERS.MEDIUM}x`, description: '2 digits' },
-  HIGH: { odds: `${BASE_MULTIPLIERS.HIGH}x`, description: '3 digits' },
-};
-
-const TIER_DISPLAY_LABEL: Record<TicketTier, string> = {
-  LOW: 'LOW',
-  MEDIUM: 'MIDI',
-  HIGH: 'HIGH',
-};
-
-const JACKPOT_LABEL: Record<TicketTier, string> = {
-  LOW: 'Mini Jackpot',
-  MEDIUM: 'Midi Jackpot',
-  HIGH: 'High Jackpot',
-};
-
-/** Section 5a: the number of digits entered IS the tier selection — no
- * separate chip/toggle. 0 filled slots = no tier yet. */
-function tierForDigitCount(count: number): TicketTier | null {
-  if (count === 1) return 'LOW';
-  if (count === 2) return 'MEDIUM';
-  if (count === 3) return 'HIGH';
-  return null;
-}
-
-type EditTarget = { kind: 'digit'; index: number } | { kind: 'jackpot'; index: 0 | 1 } | { kind: 'lowPick' } | null;
 
 const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 export function BettingPanel() {
-  const {
-    placeBet, phase, balance, currentJackpotSequence, hasBetThisRound,
-    bettingLocked, autoBet, autoBetError, clearAutoBetError, startAutoBet, stopAutoBet,
-  } = useGame();
-  // Additional LOW picks beyond digits[0] (the main slot's digit is always
-  // pick #1). Distinct affordance from Combo on purpose — Combo permutes
-  // ONE typed sequence; this batches several independent 1-digit tickets.
-  const [lowPicks, setLowPicks] = useState<number[]>([]);
-  const [autoBetPickerOpen, setAutoBetPickerOpen] = useState(false);
-  const [digits, setDigits] = useState<(number | null)[]>(() => Array(MAX_DIGIT_SLOTS).fill(null));
-  const [jackpotDigits, setJackpotDigits] = useState<[number | null, number | null]>(currentJackpotSequence);
-  const [isCombo, setIsCombo] = useState(false);
-  const [editTarget, setEditTarget] = useState<EditTarget>({ kind: 'digit', index: 0 });
+  const { placeBet, balance, bettingLocked: locked, jackpotPool, activeTickets } = useGame();
+  const [digits, setDigits] = useState<(number | null)[]>(() => Array(LINK_LENGTH).fill(null));
+  const [focus, setFocus] = useState<number | null>(0);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const autoBetActive = autoBet !== null;
 
-  // Auto-dismiss the confirmation/error message a few seconds after it
-  // appears, instead of leaving it on screen indefinitely. Re-runs (and so
-  // restarts the countdown) whenever a *new* feedback object is set — e.g.
-  // placing another bet quickly replaces the timer rather than stacking one.
   useEffect(() => {
     if (!feedback) return;
     const timeout = window.setTimeout(() => setFeedback(null), 4000);
     return () => window.clearTimeout(timeout);
   }, [feedback]);
 
-  useEffect(() => {
-    if (!autoBetError) return;
-    const timeout = window.setTimeout(clearAutoBetError, 4000);
-    return () => window.clearTimeout(timeout);
-  }, [autoBetError, clearAutoBetError]);
+  const filled = digits.filter((d): d is number => d !== null);
+  const complete = filled.length === LINK_LENGTH;
+  const canSubmit = !locked && complete && balance >= TICKET_STAKE;
 
-  const shownFeedback: typeof feedback = autoBetError
-    ? { type: 'error', message: autoBetError }
-    : feedback;
-
-  const isBettingOpen = phase === 'BETTING_OPEN';
-  const locked = bettingLocked;
-
-  const filledDigits = digits.filter((d): d is number => d !== null);
-  const filledCount = filledDigits.length;
-  const detectedTier = tierForDigitCount(filledCount);
-
-  const isLowTier = detectedTier === 'LOW';
-  // The main digit slot's value is always pick #1; lowPicks holds the rest.
-  const allLowPicks = isLowTier && filledDigits.length === 1 ? [filledDigits[0], ...lowPicks] : [];
-  const canAddMorePicks = isLowTier && allLowPicks.length < MAX_LOW_PICKS;
-
-  function focusDigitSlot(index: number) {
+  function handleSlot(index: number) {
     if (locked) return;
     playUiClick();
-    setEditTarget({ kind: 'digit', index });
-  }
-
-  function focusJackpotSlot(index: 0 | 1) {
-    if (locked) return;
-    playUiClick();
-    setEditTarget({ kind: 'jackpot', index });
-  }
-
-  function advanceFocus(current: NonNullable<EditTarget>) {
-    if (current.kind === 'digit') {
-      if (current.index + 1 < MAX_DIGIT_SLOTS) {
-        setEditTarget({ kind: 'digit', index: current.index + 1 });
-        return;
-      }
-      if (jackpotDigits[0] === null) {
-        setEditTarget({ kind: 'jackpot', index: 0 });
-        return;
-      }
-      if (jackpotDigits[1] === null) {
-        setEditTarget({ kind: 'jackpot', index: 1 });
-        return;
-      }
-      setEditTarget(null);
-    } else if (current.kind === 'jackpot') {
-      if (current.index === 0) {
-        setEditTarget({ kind: 'jackpot', index: 1 });
-        return;
-      }
-      setEditTarget(null);
-      } else {
-      // 'lowPick' never actually reaches here — handleDigitPress returns
-      // early for it without calling advanceFocus — this branch exists
-      // purely so the function stays exhaustively typed.
-      setEditTarget(null);
-    }
+    setFocus(index);
   }
 
   function handleDigitPress(digit: number) {
-    if (!editTarget || locked) return;
+    if (locked || focus === null) return;
     playUiClick();
     setFeedback(null);
-    clearAutoBetError();
-
-    if (editTarget.kind === 'digit') {
-      setDigits((prev) => {
-        const next = [...prev];
-        next[editTarget.index] = digit;
-        return next;
-      });
-    } else if (editTarget.kind === 'lowPick') {
-      if (canAddMorePicks && !allLowPicks.includes(digit)) {
-        setLowPicks((prev) => [...prev, digit]);
-      } else if (allLowPicks.includes(digit)) {
-        setFeedback({ type: 'error', message: 'Already picked.' });
-      }
-      setEditTarget(null);
-      return;
-    } else {
-      setJackpotDigits((prev) => {
-        const next: [number | null, number | null] = [prev[0], prev[1]];
-        next[editTarget.index] = digit;
-        return next;
-      });
-    }
-    advanceFocus(editTarget);
+    setDigits((prev) => {
+      const next = [...prev];
+      next[focus] = digit;
+      return next;
+    });
+    setFocus(focus + 1 < LINK_LENGTH ? focus + 1 : null);
   }
 
   function handleClear() {
     if (locked) return;
     playUiClick();
-    setDigits(Array(MAX_DIGIT_SLOTS).fill(null));
-    setIsCombo(false);
-    setLowPicks([]);
-    setAutoBetPickerOpen(false);
-    setEditTarget({ kind: 'digit', index: 0 });
+    setDigits(Array(LINK_LENGTH).fill(null));
+    setFocus(0);
     setFeedback(null);
   }
 
-  /** Forms one complete random link — 1 to 3 random digits (tier follows
-   * from the count, same as manual entry) plus a random jackpot pair —
-   * always a single straight bet (never combo, never multi-pick). Player
-   * still has to press Place Bet to confirm; this only fills the form. */
   function handleRandom() {
     if (locked) return;
     playUiClick();
-    const count = 1 + Math.floor(Math.random() * MAX_DIGIT_SLOTS);
-    const nextDigits: (number | null)[] = Array(MAX_DIGIT_SLOTS).fill(null);
-    for (let i = 0; i < count; i += 1) {
-      nextDigits[i] = Math.floor(Math.random() * 10);
-    }
-    setDigits(nextDigits);
-    setIsCombo(false);
-    setLowPicks([]);
-    setAutoBetPickerOpen(false);
-    setJackpotDigits([Math.floor(Math.random() * 10), Math.floor(Math.random() * 10)]);
-    setEditTarget(null);
+    setDigits(Array.from({ length: LINK_LENGTH }, () => Math.floor(Math.random() * 10)));
+    setFocus(null);
     setFeedback(null);
   }
 
-  /** Jackpot digits now persist across rounds until the player edits them
-   * or rerolls — no longer auto-reseeded from the engine every round. */
-  function handleRerollJackpot() {
-    if (locked) return;
-    playUiClick();
-    setJackpotDigits([Math.floor(Math.random() * 10), Math.floor(Math.random() * 10)]);
-  }
-
-   function focusAddPick() {
-    if (locked || !canAddMorePicks) return;
-    playUiClick();
-    setEditTarget({ kind: 'lowPick' });
-  }
-
-  function handleRemovePick(index: number) {
-    if (locked) return;
-    playUiClick();
-    setLowPicks((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  const comboAvailable = detectedTier !== null && detectedTier !== 'LOW';
-  const comboActive = comboAvailable && isCombo;
-  const jackpotComplete = jackpotDigits[0] !== null && jackpotDigits[1] !== null;
-  const possibilityCount = comboActive ? countComboPossibilities(filledDigits) : 1;
-  const lowPickCount = isLowTier ? allLowPicks.length : 1;
-  const totalStake =
-    detectedTier === null ? 0 : comboActive ? calculateComboStake(filledDigits) : isLowTier ? calculateTotalStake(lowPickCount) : TICKET_STAKE;
-  const canSubmit = isBettingOpen && !autoBetActive && !hasBetThisRound && detectedTier !== null && jackpotComplete && balance >= totalStake;
-
-  function buildRequest(): BetRequest {
-    const tier = detectedTier as TicketTier;
-    if (isLowTier && allLowPicks.length > 1) {
-      const selections: BetSelection[] = allLowPicks.map((digit) => ({ tier: 'LOW', digits: [digit], isCombo: false }));
-      return { selections, jackpotSequence: jackpotDigits as [number, number] };
-    }
-    const selection: BetSelection = { tier, digits: filledDigits, isCombo: comboActive };
-    return { selections: [selection], jackpotSequence: jackpotDigits as [number, number] };
-  }
   function handleSubmit() {
     if (!canSubmit) return;
-    const result = placeBet(buildRequest());
+    const result = placeBet({ links: [filled] });
     if (result.success) {
       playUiClick();
       setFeedback({ type: 'success', message: result.message });
-      setEditTarget(null);
-      setAutoBetPickerOpen(false);
+      setFocus(null);
     } else {
       setFeedback({ type: 'error', message: result.message });
     }
   }
-
-  function handleStartAutoBet(rounds: number) {
-    if (!canSubmit) return;
-    const result = startAutoBet(buildRequest(), rounds);
-    if (!result.success) {
-      setFeedback({ type: 'error', message: result.message });
-      return;
-    }
-    playUiClick();
-    setEditTarget(null);
-    setAutoBetPickerOpen(false);
-    setFeedback({
-      type: 'success',
-      message: `${result.message} — Auto Bet started (${rounds} round${rounds === 1 ? '' : 's'}).`,
-    });
-  }
-
-  function handleStopAutoBet() {
-    playUiClick();
-    stopAutoBet();
-    setFeedback({ type: 'success', message: 'Auto Bet stopped.' });
-   }
 
   return (
     <section
       aria-label="Place a bet"
       className="rounded-3xl border border-white/[0.07] bg-gradient-to-b from-white/[0.035] to-transparent p-4 backdrop-blur-sm sm:p-5"
     >
-      {/* Number Entry — Section 5a: tier is auto-detected by digit count */}
-      <div>
+      <p className="text-center font-mono text-[11px] text-white/45">
+        1 hit {PRIZE_MULTIPLIERS[1]}× · 2 hits {PRIZE_MULTIPLIERS[2]}× ·{' '}
+        <span className="font-bold text-[#eab308]">3 hits JACKPOT {formatCompactCurrency(jackpotPool)}</span>
+      </p>
 
-        <div className="mt-2 flex items-center justify-center gap-2">
-          {digits.map((digit, i) => {
-            const isFocused = editTarget?.kind === 'digit' && editTarget.index === i;
-            const filled = digit !== null;
-            return (
-              <button
-                key={i}
-                type="button"
-                onClick={() => focusDigitSlot(i)}
-                disabled={locked}
-                style={filled && !isFocused ? { backgroundColor: `${DIGIT_COLORS[digit]}33`, borderColor: DIGIT_COLORS[digit] } : undefined}
-                className={[
-                  'flex h-11 w-11 items-center justify-center rounded-xl border font-mono text-lg font-bold tabular-nums transition',
-                  isFocused
-                    ? 'border-[#eab308] bg-[#eab308]/15 text-[#eab308] shadow-[0_0_0_3px_rgba(234,179,8,0.15)]'
-                    : filled
-                      ? 'text-white'
-                      : 'border-dashed border-white/15 text-white/25',
-                ].join(' ')}
-              >
-                {digit ?? '·'}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-2 flex items-center justify-center gap-2">
-          {detectedTier ? (
-            <>
-              <span className="rounded-full bg-[#eab308]/15 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-[#eab308]">
-                {TIER_DISPLAY_LABEL[detectedTier]}
-              </span>
-              <span className="font-mono text-[11px] text-white/40">
-                {TIER_META[detectedTier].odds} total return
-              </span>
-            </>
-          ) : (
-            <span className="font-mono text-[11px] text-white/30">Enter 1–3 digits to set volatility</span>
-          )}
-        </div>
-      </div>
-
-      {/* Combo — switch instead of checkbox, with inline explanation so the
-          "any order" behavior is clear without a separate tooltip. Switch
-          and the possibility/stake badge sit on independent rows/tracks so
-          the badge appearing can never compress or offset the switch. */}
-      {comboAvailable && (
-        <div
-          className={[
-            'mt-2 rounded-xl border px-3.5 py-2 transition',
-            isCombo
-              ? 'border-[#eab308]/40 bg-[#eab308]/[0.06]'
-              : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15',
-          ].join(' ')}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              if (locked) return;
-              playUiClick();
-              setIsCombo((c) => !c);
-            }}
-            disabled={locked}
-            className="grid w-full grid-cols-[1fr_auto] items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <span className="flex flex-col items-start gap-0.5 text-left">
-              <span className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-white">Combo</span>
-              <span className="font-mono text-[10px] text-white/40">Selected numbers in any order</span>
-            </span>
-            <span
-              role="switch"
-              aria-checked={isCombo}
+      <div className="mt-3 flex items-center justify-center gap-2">
+        {digits.map((digit, i) => {
+          const isFocused = focus === i;
+          const isFilled = digit !== null;
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => handleSlot(i)}
+              disabled={locked}
+              style={isFilled && !isFocused ? { backgroundColor: `${DIGIT_COLORS[digit]}33`, borderColor: DIGIT_COLORS[digit] } : undefined}
               className={[
-                'relative block h-5 w-9 shrink-0 rounded-full transition-colors',
-                isCombo ? 'bg-[#eab308]' : 'bg-white/15',
+                'flex h-12 w-12 items-center justify-center rounded-xl border font-mono text-xl font-bold tabular-nums transition',
+                isFocused
+                  ? 'border-[#eab308] bg-[#eab308]/15 text-[#eab308] shadow-[0_0_0_3px_rgba(234,179,8,0.15)]'
+                  : isFilled
+                    ? 'text-white'
+                    : 'border-dashed border-white/15 text-white/25',
               ].join(' ')}
             >
-              <span
-                className={[
-                  'absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-black shadow transition-transform',
-                  isCombo ? 'translate-x-4' : 'translate-x-0',
-                ].join(' ')}
-              />
-            </span>
-          </button>
-          {isCombo && (
-            <p className="mt-1 text-right font-mono text-[10px] text-[#eab308]">
-              {possibilityCount} possibilit{possibilityCount === 1 ? 'y' : 'ies'} · {formatCurrency(totalStake)}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* LOW multi-pick — deliberately NOT styled like the Combo block
-          above: chips + an inline "+ Add" digit picker, not a toggle, so
-          it can never be mistaken for permuting one sequence. Only shows
-          once tier is LOW (comboAvailable already excludes LOW, so this
-          and the Combo block never render at the same time). */}
-      {isLowTier && (
-        <div className="mt-2 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-2.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {allLowPicks.map((digit, i) => (
-              <span
-                key={`${digit}-${i}`}
-                style={{ backgroundColor: `${DIGIT_COLORS[digit]}33`, borderColor: DIGIT_COLORS[digit] }}
-                className="flex items-center gap-1 rounded-lg border px-2 py-1 font-mono text-xs font-bold tabular-nums text-white"
-              >
-                {digit}
-                {/* Pick #1 (the main slot's digit) is removed via Clear,
-                    not here — only additional picks (index > 0) get an
-                    individual remove control. */}
-                {i > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemovePick(i - 1)}
-                    disabled={locked}
-                    aria-label={`Remove pick ${digit}`}
-                    className="text-white/50 hover:text-white"
-                  >
-                    ✕
-                  </button>
-                )}
-              </span>
-            ))}
-
-          {canAddMorePicks && !locked && (
-              <button
-                type="button"
-                onClick={focusAddPick}
-                className={[
-                  'rounded-lg border px-2 py-1 font-mono text-xs font-bold transition',
-                  editTarget?.kind === 'lowPick'
-                    ? 'border-[#eab308] bg-[#eab308]/15 text-[#eab308] shadow-[0_0_0_3px_rgba(234,179,8,0.15)]'
-                    : 'border-dashed border-[#eab308]/50 text-[#eab308] hover:bg-[#eab308]/10',
-                ].join(' ')}
-              >
-                Pick another
-              </button>
-            )}
-            <span className="ml-auto font-mono text-sm font-bold tabular-nums text-white/70">
-              {allLowPicks.length}/{MAX_LOW_PICKS}
-            </span>
-          </div>
-
-          {allLowPicks.length > 1 && (
-            <p className="mt-1.5 text-right font-mono text-[10px] text-[#eab308]">
-              {allLowPicks.length} links · {formatCurrency(totalStake)}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Jackpot Combination — compact single row. Persists across rounds
-          until edited or rerolled (Section 9 note in IMPLEMENTATION LOG).
-          Intentionally minimal: the jackpot is a secondary/bonus feature,
-          not the main game loop. */}
-      <div className="mt-2 flex items-center justify-between rounded-xl border border-[#eab308]/15 bg-[#eab308]/[0.03] px-3 py-1.5">
-        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#eab308]/70">
-          {detectedTier ? JACKPOT_LABEL[detectedTier] : 'Jackpot'}
-        </span>
-        <div className="flex items-center gap-2">
-          <JackpotSlot
-            small
-            value={jackpotDigits[0]}
-            focused={editTarget?.kind === 'jackpot' && editTarget.index === 0}
-            disabled={locked}
-            onClick={() => focusJackpotSlot(0)}
-          />
-          <span className="font-mono text-xs text-white/25">→</span>
-          <JackpotSlot
-            small
-            value={jackpotDigits[1]}
-            focused={editTarget?.kind === 'jackpot' && editTarget.index === 1}
-            disabled={locked}
-            onClick={() => focusJackpotSlot(1)}
-          />
-          <button
-            type="button"
-            onClick={handleRerollJackpot}
-            disabled={locked}
-            aria-label="Reroll jackpot combination"
-            className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 text-white/40 transition hover:border-[#eab308]/50 hover:text-[#eab308] disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            ⟳
-          </button>
-        </div>
+              {digit ?? '·'}
+            </button>
+          );
+        })}
       </div>
 
-      <DigitPad active={editTarget !== null && !locked} onPress={handleDigitPress} />
+      <div
+        className={[
+          'mt-3 grid grid-cols-5 gap-1.5 transition-opacity duration-200',
+          !locked && focus !== null ? 'opacity-100' : 'pointer-events-none opacity-30',
+        ].join(' ')}
+      >
+        {DIGITS.map((digit) => (
+          <button
+            key={digit}
+            type="button"
+            onClick={() => handleDigitPress(digit)}
+            disabled={locked || focus === null}
+            style={{ backgroundColor: `${DIGIT_COLORS[digit]}80`, borderColor: `${DIGIT_COLORS[digit]}80` }}
+            className="flex h-10 items-center justify-center rounded-lg border font-mono text-lg font-bold tabular-nums text-white transition hover:brightness-125 active:scale-95"
+          >
+            {digit}
+          </button>
+        ))}
+      </div>
 
-      {shownFeedback && (
+      {feedback && (
         <p
           role="status"
           className={[
             'mt-2 rounded-lg px-3 py-1.5 text-center text-xs',
-            shownFeedback.type === 'success'
-              ? 'bg-emerald-400/10 text-emerald-300'
-              : 'bg-red-400/10 text-red-300',
+            feedback.type === 'success' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-red-400/10 text-red-300',
           ].join(' ')}
         >
-          {shownFeedback.message}
+          {feedback.message}
         </p>
       )}
 
-       {!autoBetActive && (
-        <div className="mt-2 flex items-center justify-between gap-2">
-         <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={handleClear}
-              disabled={locked || filledCount === 0}
-              className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.15em] text-white/60 transition hover:border-[#eab308]/50 hover:text-[#eab308] disabled:cursor-not-allowed disabled:opacity-30 disabled:text-white/25"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              onClick={handleRandom}
-              disabled={locked}
-              className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.15em] text-white/60 transition hover:border-[#eab308]/50 hover:text-[#eab308] disabled:cursor-not-allowed disabled:opacity-30 disabled:text-white/25"
-            >
-              Random
-            </button>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {autoBetPickerOpen ? (
-              AUTO_BET_PRESETS.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => handleStartAutoBet(n)}
-                  disabled={!canSubmit}
-                  className="flex h-8 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] font-mono text-xs font-bold text-white/70 transition hover:border-[#eab308]/50 hover:text-[#eab308] disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  {n}
-                </button>
-              ))
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  playUiClick();
-                  setAutoBetPickerOpen(true);
-                }}
-                disabled={!canSubmit}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.15em] text-white/60 transition hover:border-[#eab308]/50 hover:text-[#eab308] disabled:cursor-not-allowed disabled:opacity-30"
-              >
-                Auto Bet
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 rounded-b-3xl border-t border-white/[0.06] bg-[#141414]/95 px-4 pb-4 pt-4 backdrop-blur-sm sm:-mx-5 sm:-mb-5 sm:px-5 sm:pb-5">
-        {autoBetActive && autoBet ? (
-          <div className="flex items-center justify-between gap-2">
-            <span className="rounded-xl border border-[#eab308]/30 bg-[#eab308]/10 px-3 py-2.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-[#eab308]">
-              {autoBet.roundsTotal - autoBet.roundsRemaining}/{autoBet.roundsTotal} rounds
-            </span>
-            <button
-              type="button"
-              onClick={handleStopAutoBet}
-              className="rounded-xl border border-white/10 px-3 py-2.5 font-mono text-xs uppercase tracking-[0.15em] text-white/60 transition hover:border-red-400/40 hover:text-red-300"
-            >
-              Stop
-            </button>
-          </div>
-        ) : (
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            className={[
-              'flex h-12 w-full items-center justify-center rounded-xl px-4 font-mono text-sm font-bold uppercase tracking-[0.2em] transition',
-              canSubmit
-                ? 'bg-[#eab308] text-black shadow-[0_0_24px_-6px_rgba(234,179,8,0.7)] hover:bg-[#facc15]'
-                : 'cursor-not-allowed bg-white/[0.06] text-white/25',
-            ].join(' ')}
+            onClick={handleClear}
+            disabled={locked || filled.length === 0}
+            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.15em] text-white/60 transition hover:border-[#eab308]/50 hover:text-[#eab308] disabled:cursor-not-allowed disabled:opacity-30"
           >
-            {detectedTier === null
-              ? 'Select Digits'
-              : isCombo
-                ? `Place ${formatCurrency(totalStake)} Combo Bet`
-                : allLowPicks.length > 1
-                  ? `Place ${allLowPicks.length} Bets — ${formatCurrency(totalStake)}`
-                  : `Place ${formatCurrency(totalStake)} Bet`}
+            Clear
           </button>
-        )}
+          <button
+            type="button"
+            onClick={handleRandom}
+            disabled={locked}
+            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.15em] text-white/60 transition hover:border-[#eab308]/50 hover:text-[#eab308] disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Random
+          </button>
+        </div>
+        <span className="font-mono text-[10px] text-white/35">
+          {activeTickets.length} active · max {MAX_LINKS_PER_ROUND}/round
+        </span>
       </div>
 
-      {hasBetThisRound && !autoBetActive && isBettingOpen && (
-        <p className="mt-3.5 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-white/30">
-          Bet locked in for this round.
-        </p>
-      )}
-    </section>
-  );
-}
-
-// ----------------------------------------------------------------------------
-// Sub-components
-// ----------------------------------------------------------------------------
-interface JackpotSlotProps {
-  value: number | null;
-  focused: boolean;
-  disabled: boolean;
-  onClick: () => void;
-  small?: boolean;
-}
-
-function JackpotSlot({ value, focused, disabled, onClick, small }: JackpotSlotProps) {
-  const filled = value !== null;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={filled && !focused ? { backgroundColor: `${DIGIT_COLORS[value]}33`, borderColor: DIGIT_COLORS[value] } : undefined}
-      className={[
-        small
-          ? 'flex h-8 w-8 items-center justify-center rounded-lg border font-mono text-sm font-bold tabular-nums transition'
-          : 'flex h-12 w-12 items-center justify-center rounded-xl border font-mono text-lg font-bold tabular-nums transition',
-        focused
-          ? 'border-[#eab308] bg-[#eab308]/15 text-[#eab308] shadow-[0_0_0_3px_rgba(234,179,8,0.15)]'
-          : filled
-            ? 'text-white'
-            : 'border-dashed border-white/15 text-white/25',
-      ].join(' ')}
-    >
-      {value ?? '·'}
-    </button>
-  );
-}
-
-interface DigitPadProps {
-  active: boolean;
-  onPress: (digit: number) => void;
-}
-
-/** Always two rows of five (0-4 / 5-9), on every breakpoint — a single
- * 10-across row was too congested to tap reliably. */
-function DigitPad({ active, onPress }: DigitPadProps) {
-  return (
-    <div
-      className={[
-        'mt-3 grid grid-cols-5 gap-1.5 transition-opacity duration-200',
-        active ? 'opacity-100' : 'pointer-events-none opacity-30',
-      ].join(' ')}
-    >
-      {DIGITS.map((digit) => (
+      <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 rounded-b-3xl border-t border-white/[0.06] bg-[#141414]/95 px-4 pb-4 pt-4 backdrop-blur-sm sm:-mx-5 sm:-mb-5 sm:px-5 sm:pb-5">
         <button
-          key={digit}
           type="button"
-          onClick={() => onPress(digit)}
-          disabled={!active}
-          style={{ backgroundColor: `${DIGIT_COLORS[digit]}80`, borderColor: `${DIGIT_COLORS[digit]}80` }}
-          className="flex h-10 items-center justify-center rounded-lg border font-mono text-lg font-bold tabular-nums text-white transition hover:brightness-125 active:scale-95"        
-          >
-          {digit}
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className={[
+            'flex h-12 w-full items-center justify-center rounded-xl px-4 font-mono text-sm font-bold uppercase tracking-[0.2em] transition',
+            canSubmit
+              ? 'bg-[#eab308] text-black shadow-[0_0_24px_-6px_rgba(234,179,8,0.7)] hover:bg-[#facc15]'
+              : 'cursor-not-allowed bg-white/[0.06] text-white/25',
+          ].join(' ')}
+        >
+          {complete ? `Place ${formatCurrency(TICKET_STAKE)} Bet` : `Select ${LINK_LENGTH} Digits`}
         </button>
-      ))}
-    </div>
+      </div>
+    </section>
   );
 }

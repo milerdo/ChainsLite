@@ -1,11 +1,11 @@
 import type { Ticket } from '../game/types';
 import { LinkChain } from './ChainLinks';
+import { formatCurrency } from '../utils/format';
 
 export function TicketCard({ ticket }: { ticket: Ticket }) {
   const isLost = ticket.status === 'LOST';
   const isJackpotWon = ticket.status === 'JACKPOT_WON';
-  const inQualification = ticket.status === 'BASE_WON' || ticket.status === 'JACKPOT_STEP_1' || ticket.status === 'JACKPOT_STEP_2';
-  const jackpotMissed = ticket.status === 'JACKPOT_LOST';
+  const isWon = ticket.status === 'WON';
 
   return (
     <div
@@ -15,12 +15,19 @@ export function TicketCard({ ticket }: { ticket: Ticket }) {
           ? 'border-[#eab308] bg-[#eab308]/[0.08] shadow-[0_0_28px_-6px_rgba(234,179,8,0.55)]'
           : isLost
             ? 'border-red-400/20 bg-red-400/[0.03]'
-            : inQualification || jackpotMissed
+            : isWon
               ? 'border-emerald-400/25 bg-emerald-400/[0.04]'
               : 'border-white/[0.08] bg-white/[0.02]',
       ].join(' ')}
     >
-      <LinkChain ticket={ticket} size="sm" />
+      <div className="flex items-center justify-between gap-2">
+        <LinkChain ticket={ticket} size="sm" />
+        {isWon && (
+          <span className="shrink-0 font-mono text-xs font-bold tabular-nums text-emerald-300">
+            {formatCurrency(ticket.totalReturn)}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -42,7 +49,7 @@ export function TicketDrawer({ tickets, compact = false }: { tickets: Ticket[]; 
       >
         {tickets.length === 0 ? (
           <p className="rounded-xl border border-dashed border-white/10 px-3 py-6 text-center font-mono text-xs text-white/30">
-            No active bets.
+            No active links.
           </p>
         ) : (
           tickets.map((ticket) => (

@@ -1,53 +1,79 @@
 import { describe, it, expect } from 'vitest';
 import { JackpotManager } from './jackpot';
-import { INITIAL_JACKPOT_POOLS, JACKPOT_CONTRIBUTION_RATES } from './constants';
+import { INITIAL_JACKPOT_POOL, JACKPOT_CONTRIBUTION_RATE, JACKPOT_SEED_MULTIPLIER, TICKET_STAKE } from './constants';
 
 describe('JackpotManager', () => {
-  it('starts unseeded', () => {
-    expect(INITIAL_JACKPOT_POOLS).toEqual({ MINI: 0, MIDI: 0, GRAND: 0 });
+  it('starts at the 200x seed', () => {
+    expect(INITIAL_JACKPOT_POOL).toBe(JACKPOT_SEED_MULTIPLIER * TICKET_STAKE);
+    expect(INITIAL_JACKPOT_POOL).toBe(200);
+    expect(new JackpotManager().getPool()).toBe(200);
   });
 
-  it('contributes the configured rate per $1, only to its own pool', () => {
+  it('contributes the configured rate per stake', () => {
     const jm = new JackpotManager();
-    jm.contribute('HIGH', 6);
-    expect(jm.getPool('GRAND')).toBeCloseTo(JACKPOT_CONTRIBUTION_RATES.HIGH * 6, 6);
-    expect(jm.getPool('MINI')).toBe(0);
-    expect(jm.getPool('MIDI')).toBe(0);
+    expect(jm.contribute(1)).toBeCloseTo(0.12, 10);
+    expect(jm.getPool()).toBeCloseTo(200.12, 6);
+    jm.contribute(3);
+    expect(jm.getPool()).toBeCloseTo(200 + JACKPOT_CONTRIBUTION_RATE * 4, 6);
   });
 
-  it('pays the full pool to one winner and resets to seed', () => {
+  it('pays the whole pool (seed + accumulated) to one winner and resets to seed', () => {
     const jm = new JackpotManager();
-    for (let i = 0; i < 100; i += 1) jm.contribute('LOW', 1);
-    const res = jm.payout('MINI', ['T1'], 10);
-    expect(res.perWinnerAmount).toBeCloseTo(6, 2);
-    expect(jm.getPool('MINI')).toBe(0);
+    for (let i = 0; i < 100; i += 1) jm.contribute(1);
+    const res = jm.payout(['T1'], 10);
+    expect(res.shares).toEqual([212]);
+    expect(res.totalPaid).toBe(212);
+    expect(jm.getPool()).toBe(200);
     expect(jm.getWinHistory()).toHaveLength(1);
   });
 
   it('splits equally between simultaneous winners', () => {
     const jm = new JackpotManager();
-    jm.forceSetPool('GRAND', 100);
-    const res = jm.payout('GRAND', ['A', 'B'], 1);
-    expect(res.perWinnerAmount).toBe(50);
+    jm.forceSetPool(100);
+    const res = jm.payout(['A', 'B'], 1);
+    expect(res.shares).toEqual([50, 50]);
+    expect(res.totalPaid).toBe(100);
+    expect(jm.getPool()).toBe(200);
+  });
+
+  it('distributes remainder cents so shares sum to the pool exactly', () => {
+    const jm = new JackpotManager();
+    jm.forceSetPool(100);
+    const res = jm.payout(['A', 'B', 'C'], 1);
+    expect(res.shares).toEqual([33.34, 33.33, 33.33]);
     expect(res.totalPaid).toBe(100);
   });
 
   it('does nothing with zero winners', () => {
     const jm = new JackpotManager();
-    jm.contribute('LOW', 10);
-    const before = jm.getPool('MINI');
-    expect(jm.payout('MINI', [], 1).totalPaid).toBe(0);
-    expect(jm.getPool('MINI')).toBe(before);
+    jm.contribute(10);
+    const before = jm.getPool();
+    expect(jm.payout([], 1).totalPaid).toBe(0);
+    expect(jm.getPool()).toBe(before);
   });
 
-  it('conserves money: paid + remaining == contributed (no house-funded EV)', () => {
+  it('reset() returns to seed and clears history', () => {
+    const jm = new JackpotManager();
+    jm.contribute(5);
+    jm.payout(['T'], 1);
+    jm.forceSetPool(999);
+    jm.reset();
+    expect(jm.getPool()).toBe(200);
+    expect(jm.getWinHistory()).toHaveLength(0);
+  });
+
+  it('conserves money: paid + pool = seed + contributed + seed x payouts', () => {
     const jm = new JackpotManager();
     let contributed = 0;
     let paid = 0;
+    let payouts = 0;
     for (let i = 1; i <= 500; i += 1) {
-      contributed += jm.contribute('MEDIUM', 1);
-      if (i % 37 === 0) paid += jm.payout('MIDI', ['T'], i).totalPaid;
+      contributed += jm.contribute(1);
+      if (i % 37 === 0) {
+        paid += jm.payout(['T'], i).totalPaid;
+        payouts += 1;
+      }
     }
-    expect(paid + jm.getPool('MIDI')).toBeCloseTo(contributed, 2);
+    expect(paid + jm.getPool()).toBeCloseTo(INITIAL_JACKPOT_POOL + contributed + INITIAL_JACKPOT_POOL * payouts, 2);
   });
 });

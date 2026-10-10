@@ -23,7 +23,6 @@ import { DemoPanel } from './components/DemoPanel';
 import { JackpotCelebration } from './components/JackpotCelebration';
 import { MobileFooter } from './components/MobileFooter';
 import { PhaseStatus } from './components/PhaseStatus';
-import { LinkStrip } from './components/ChainLinks';
 import { useMediaQuery } from './hooks/useMediaQuery';
 
 /** Presenter tools only appear when the URL has ?demo (e.g. yoursite.com/?demo). */
@@ -87,7 +86,6 @@ function AppShell() {
             </div>
             {/* Shared zone: BettingPanel stays mounted (hidden) while locked */}
             <div className={['flex min-h-0 flex-1 flex-col gap-2', bettingLocked ? 'hidden' : ''].join(' ')}>
-              <LinkStrip tickets={activeTickets} />
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <BettingPanel />
               </div>

@@ -4,23 +4,23 @@
 // src/game/payouts.ts for anything that touches actual credited amounts.
 // ============================================================================
 
-/** "$9.00" / "-$1.00" — always shows the sign explicitly for negatives. */
+import { formatMoney } from '../game/money';
+
+/** "9,00 €" / "-1,00 €" */
 export function formatCurrency(value: number): string {
-  const sign = value < 0 ? '-' : '';
-  return `${sign}$${Math.abs(value).toFixed(2)}`;
+  return formatMoney(value);
 }
 
-/** "+$888.00" — explicitly signed, used for history/ticket win amounts. */
+/** "+10,00 €" — explicitly signed, used for history/ticket amounts. */
 export function formatSignedCurrency(value: number): string {
   const sign = value > 0 ? '+' : value < 0 ? '-' : '';
-  return `${sign}$${Math.abs(value).toFixed(2)}`;
+  return `${sign}${formatMoney(Math.abs(value))}`;
 }
 
-/** "$10,000.00" — thousands-separated, for the large jackpot pools. */
+/** "1.234,56 €" — same format; kept as a separate name for the jackpot pool. */
 export function formatCompactCurrency(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(value);
 }
-
 export function formatDrawIndex(index: number): string {
   return `#${index}`;
 }

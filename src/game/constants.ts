@@ -1,86 +1,62 @@
 // ============================================================================
-// CHAINS — Configuration Constants
-// All game timings and economic parameters live here so they can be tuned
-// in one place for development / live demonstrations (Section 3).
+// CHAINS LITE — Configuration Constants
+// All timings and economic parameters live here (ChainsLiteContext.txt §1-5).
 // ============================================================================
 
-import type { GameConfig, JackpotPools, JackpotTierName, TicketTier } from './types';
+import type { GameConfig } from './types';
 
-// ----------------------------------------------------------------------------
-// Timings (ms)
-// ----------------------------------------------------------------------------
+// --- Currency (display only; the engine works in plain numbers) ------------
+export const CURRENCY_CODE = 'EUR';
+/** Locale controls separators and symbol position ("1.234,56 €"). */
+export const CURRENCY_LOCALE = 'de-DE';
+
+// --- Timings (ms) ----------------------------------------------------------
 export const BETTING_DURATION = 10_000;
 export const BETTING_CLOSED_DURATION = 1_000;
 export const DRAW_ANIMATION_DURATION = 5_000;
 export const RESULT_DISPLAY_DURATION = 1_000;
 
-// ----------------------------------------------------------------------------
-// Economy
-// ----------------------------------------------------------------------------
+// --- Economy ---------------------------------------------------------------
 export const TICKET_STAKE = 1;
 export const STARTING_BALANCE = 100;
 
-/** Total return multiplier per $1 staked (Section 9). Total return already
- * includes the original stake. */
-export const BASE_MULTIPLIERS: Record<TicketTier, number> = {
-  LOW: 9,
-  MEDIUM: 88,
-  HIGH: 888,
+/** Digits in a link; a link lives exactly this many draws (spec §1). */
+export const LINK_LENGTH = 3;
+
+/** Total-return multiplier by number of hits (stake included). 0 hits loses;
+ * 3 hits pays the progressive jackpot INSTEAD of a multiplier, so it has no
+ * entry here (spec §1). */
+export const PRIZE_MULTIPLIERS: Readonly<Record<number, number>> = {
+  1: 1.5,
+  2: 10,
 };
 
-/** Number of consecutive digits each tier requires (Section 5). */
-export const BASE_SEQUENCE_LENGTH: Record<TicketTier, number> = {
-  LOW: 1,
-  MEDIUM: 2,
-  HIGH: 3,
-};
+/** Jackpot seed, as a multiple of stake (spec §3: 200x). Operator-funded. */
+export const JACKPOT_SEED_MULTIPLIER = 200;
+export const INITIAL_JACKPOT_POOL = JACKPOT_SEED_MULTIPLIER * TICKET_STAKE;
 
-/** Which progressive pool each tier feeds into and can win (Section 16). */
-export const TIER_TO_JACKPOT: Record<TicketTier, JackpotTierName> = {
-  LOW: 'MINI',
-  MEDIUM: 'MIDI',
-  HIGH: 'GRAND',
-};
-
-/** Seeds are 0 by design: jackpots are funded 100% by player contributions,
- * so jackpot RTP per tier == its contribution rate (no house-funded EV).
- * Do not add seeds without recomputing RTP (see rtp.ts). */
-export const INITIAL_JACKPOT_POOLS: JackpotPools = {
-  MINI: 0,
-  MIDI: 0,
-  GRAND: 0,
-};
+/** Share of every stake added to the pool when the bet is confirmed (12%). */
+export const JACKPOT_CONTRIBUTION_RATE = 0.12;
 
 /**
  * DEMO-ONLY presentation preset, applied only when the URL has ?demo.
- * ~steady-state average pool sizes (docs/MATH.md). NOT a seed: never used by
- * engine defaults, rtp.ts or any RTP figure.
+ * 320 = steady-state average pool at win (200 + 0.12 / 0.001).
+ * NOT a seed: never used by engine defaults, rtp.ts or any RTP figure.
  */
-export const DEMO_JACKPOT_PRESET = { MINI: 60, MIDI: 700, GRAND: 8000 } as const;
+export const DEMO_JACKPOT_PRESET = 320;
 
-/** Progressive jackpot funding contribution added per $1 wagered on a
- * given tier, at the moment the bet is confirmed (Section 18). */
-export const JACKPOT_CONTRIBUTION_RATES: Record<TicketTier, number> = {
-  LOW: 0.06,
-  MEDIUM: 0.07,
-  HIGH: 0.08,
-};
+/** Max links a player may hold that were created in one betting round
+ * (i.e. since the last draw). Edit this one number to change the cap. */
+export const MAX_LINKS_PER_ROUND = 10;
 
-/** Number of digits in the jackpot qualification combination (Section 8). */
-export const JACKPOT_SEQUENCE_LENGTH = 2;
-
-/** Maximum number of concurrently-live (non-terminal) tickets allowed with
- * the exact same tier + digit sequence (Sections 5 & 12). */
-export const MAX_CONCURRENT_TICKETS_PER_SEQUENCE = 3;
-
-/** Bounds on retained history so long-running demo sessions don't grow
- * memory unboundedly. */
+// --- Bounds on retained history -------------------------------------------
 export const MAX_STREAM_HISTORY = 200;
 export const MAX_TICKET_HISTORY = 200;
 export const MAX_SIMULATED_EVENTS = 25;
 
 export const DIGIT_MIN = 0;
 export const DIGIT_MAX = 9;
+export const DIGIT_COUNT = DIGIT_MAX - DIGIT_MIN + 1;
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   bettingDurationMs: BETTING_DURATION,
@@ -91,8 +67,6 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   ticketStake: TICKET_STAKE,
 };
 
-/** Clearly label this as a demonstration system, never a certified RNG
- * (Section 23). Surfaced by UI in the Help modal / footer. */
 export const RNG_DISCLAIMER =
   'CHAINS is a demonstration system using an unaudited pseudo-random number ' +
   'generator. It is NOT a certified gambling RNG and must not be used for ' +

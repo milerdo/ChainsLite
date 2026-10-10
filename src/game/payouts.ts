@@ -1,47 +1,45 @@
 // ============================================================================
-// CHAINS — Payout & Contribution Calculations (Section 9, 18)
-// Pure functions only. No state, no side effects.
+// CHAINS LITE — Payout Calculations. Pure functions only.
 // ============================================================================
 
-import type { TicketTier } from './types';
-import { BASE_MULTIPLIERS, TICKET_STAKE } from './constants';
+import { PRIZE_MULTIPLIERS, TICKET_STAKE } from './constants';
 
-/** Rounds a currency value to the nearest cent, avoiding common
- * floating-point artifacts (e.g. 0.1 + 0.2). Use this for anything actually
- * credited/debited to the player's balance (stakes, base payouts, jackpot
- * payouts) — real money should never carry sub-cent amounts. */
+/** Rounds to the nearest cent, avoiding float artifacts. Use for anything
+ * credited/debited to the player's balance. */
 export function roundCurrency(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-/** Rounds to a higher, non-cent precision (default 6 decimal places) purely
- * to eliminate floating-point representation dust (e.g. 0.1 + 0.2 !==
- * 0.30000000000000004) without destroying legitimate sub-cent precision.
- * Use this for internal accumulators — like the progressive jackpot pools
- * — whose configured funding rates ($0.06 / $0.07 / $0.08 per Section 18)
- * are themselves sub-cent and must accumulate exactly over many
- * contributions rather than being truncated to whole cents on every add. */
+/** Rounds to 6 decimals purely to remove float dust in internal accumulators. */
 export function roundPrecise(value: number, decimals = 6): number {
   const factor = 10 ** decimals;
   return Math.round((value + Number.EPSILON) * factor) / factor;
 }
 
-/** Total return (profit + original stake) for a given stake amount. This is
- * the exact amount credited the instant a ticket's base sequence completes
- * (Section 13). */
-export function calculateBaseTotalReturn(tier: TicketTier, stake: number = TICKET_STAKE): number {
-  return roundCurrency(BASE_MULTIPLIERS[tier] * stake);
+/** Total-return multiplier for 1 or 2 hits; 0 for 0 hits. 3 hits is the
+ * jackpot and is NOT a multiplier prize, so it also returns 0 here. */
+export function prizeMultiplierForHits(hits: number): number {
+  return PRIZE_MULTIPLIERS[hits] ?? 0;
 }
 
-/** Total stake required for a bet containing the given number of tier
- * selections, at the configured per-ticket stake (Section 6). */
-export function calculateTotalStake(selectionCount: number, stakePerTicket: number = TICKET_STAKE): number {
-  return roundCurrency(selectionCount * stakePerTicket);
+/** Total return (incl. stake) for a 1- or 2-hit link. */
+export function calculatePrize(hits: number, stake: number = TICKET_STAKE): number {
+  return roundCurrency(prizeMultiplierForHits(hits) * stake);
 }
 
-/** Splits a progressive jackpot pool evenly across N simultaneous winners
- * (Section 17). Returns the amount paid to each individual winner. */
-export function splitJackpotEvenly(poolAmount: number, winnerCount: number): number {
-  if (winnerCount <= 0) return 0;
-  return roundCurrency(poolAmount / winnerCount);
+export function calculateTotalStake(linkCount: number, stakePerLink: number = TICKET_STAKE): number {
+  return roundCurrency(linkCount * stakePerLink);
+}
+
+/**
+ * Splits a pool equally across N simultaneous winning links, in whole cents.
+ * Any remainder cents go one each to the first winners, so the shares always
+ * sum to the pool exactly (no money created or lost to rounding).
+ */
+export function splitJackpotShares(poolAmount: number, winnerCount: number): number[] {
+  if (winnerCount <= 0) return [];
+  const totalCents = Math.round(poolAmount * 100);
+  const base = Math.floor(totalCents / winnerCount);
+  const remainder = totalCents - base * winnerCount;
+  return Array.from({ length: winnerCount }, (_, i) => (base + (i < remainder ? 1 : 0)) / 100);
 }
