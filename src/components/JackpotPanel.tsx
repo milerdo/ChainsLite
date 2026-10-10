@@ -64,7 +64,7 @@ export function JackpotPanel() {
           <span className="text-sm font-bold text-white">{formatMultiplier(PRIZE_MULTIPLIERS[2])}</span>
           <span className="text-white/25">·</span>
           <span className="text-[11px] font-bold uppercase text-[#fbbf24] sm:text-xs">
-            {LINK_LENGTH} hits<span className="max-[390px]:hidden"> JACKPOT</span>
+            {LINK_LENGTH} hits<span className="max-[430px]:hidden"> JACKPOT</span>
           </span>
            <span className="text-sm font-bold tabular-nums text-[#fde68a] sm:text-base">
             {formatCompactCurrency(animated)}
