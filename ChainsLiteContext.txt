@@ -71,4 +71,69 @@ Tiers (LOW/MEDIUM/HIGH), three pools (MINI/MIDI/GRAND), jackpot pair, jackpot qu
 Real money, server, multiplayer, persistence, certified RNG. Listed in README "Production path".
 
 IMPLEMENTATION LOG (append only; log wins over the sections above)
-- (empty)
+
+- 2026-10-10 DECISIONS (supersede numbered sections where they differ)
+  * Jackpot contribution is 12% ($0.12 per $1 -> now 0.12 per 1 EUR). The
+    "11.55%" wording in section 3 was an error. TOTAL RTP = 95.45%, house edge
+    4.55% (63.45% prizes + 12% contribution + 20% seed).
+  * Currency is EUR. Display format follows the European convention with the
+    symbol after the number ("9,00 EUR" shown as "9,00 €"), locale de-DE, set in
+    constants.ts (CURRENCY_LOCALE). Engine works in plain numbers.
+  * Several links per round are allowed. MAX_LINKS_PER_ROUND = 10 (constants.ts),
+    counted per round = links with createdAtDrawIndex equal to current drawIndex.
+    Demo-simulated links bypass the cap. Identical links are allowed (no
+    per-sequence cap).
+  * Bet-ahead: NOT implemented. Engine rejects bets outside BETTING_OPEN.
+  * Cycle timings unchanged from CHAINS: 10s / 1s / 5s / 1s.
+  * Prize split stays 1 hit 1.5x / 2 hits 10x.
+  * Demo preset pool = 320 (steady-state average pool at win). Demo only (?demo).
+  * Product name still open (CHAINS LITE is a working title).
+  * A jackpot link pays ONLY the pool share (no 1.5x/10x added).
+  * Simultaneous jackpot winners split the pool in whole cents; remainder cents
+    go one each to the first winners; seed is re-added once per payout event.
+  * Money identity: paid + pool = seed + contributed + seed x payout events.
+  * Auto Bet removed (replace later with Repeat Bet). LinkStrip removed.
+
+- 2026-10-10 IMPLEMENTATION STATUS
+  * M1 (engine + tests, src/game): done. combo.ts/combo.test.ts deleted.
+    New Ticket: digits, hits, drawLog, settledAtDrawIndex, prizeAmount,
+    jackpotWinAmount, totalReturn. Statuses: WAITING, ACTIVE, LOST, WON,
+    JACKPOT_WON. BetRequest = { links: number[][] } (atomic, all-or-nothing).
+    GameState exposes a single jackpotPool. money.ts added (formatMoney).
+  * Fixed in M1 follow-up: pruneTicketHistory kept the wrong (newest) settled
+    links once >200 settled; now drops the oldest and keeps chronological order.
+  * M2 (useGame + minimal UI): done. hasBetThisRound removed; bettingLocked =
+    phase is not BETTING_OPEN. Reveal pipeline kept; sounds fire only from
+    commitPublicReveal. Several jackpot wins in one draw give one celebration
+    with the combined amount.
+  * M3 (UI): settled WON links stay visible ~2s with a total-return badge; LOST
+    links flash ~0.9s. useGame uses useState(() => new ChainsGame()) for the
+    engine instance.
+  * M4: docs/MATH.md and README.md rewritten for LITE. Decimal-comma tweaks
+    (formatMultiplier, formatPercent via Intl).
+  * Branch: lite-engine merged into main.
+
+- 2026-10-10 NOT VERIFIED YET (do not claim these work)
+  * Results of npx tsc -b, npx vitest run, npm run lint after M3/M4/euro: succesful
+  * 50M-link Monte Carlo has not been run. docs/MATH.md rows are "_pending_".
+  * Lint: one react(refs) warning on createElement(GameContext.Provider...) in
+    useGame.ts; a suppression comment was proposed and Fixed.
+  * Manual playtest of the full game is in progress by the owner.
+
+- 2026-10-10 KNOWN ISSUES / TODO
+  * Mobile: links placed during betting show only as an "N active" count (the
+    LinkStrip was removed); full cards appear once betting locks.
+  * Amount inconsistency: history shows NET (e.g. +0,50 €), settled-link badge
+    and banner show TOTAL RETURN (1,50 €). Decide and align.
+  * Bet button and jackpot panel may be tight with "1,00 €" format; check layout.
+  * index.html title still "chains-game"; logo still /chains-logo.png (old).
+  * README: add screenshots and the play link. Owner name set to
+    "Milutin Erdevicki" (taken from the old MATH.md; confirm).
+  * sim.test.ts engine-level run is small (20k links) because emit() copies full
+    state each call; optional speed-up: skip emit() when no listeners (touches
+    engine core, needs approval).
+  * useGame.ts header comments mention MIN_REVEAL_DELAY_MS being shared with the
+    Wheel; Wheel does not import it. PUBLIC_REVEAL_FALLBACK_MS and
+    WHEEL_MAX_LANDING_MS must stay >= Wheel.tsx MAX_APPROACH_MS (1800).
+  * Names flashingFailedIds / failedFlashTimeoutsRef in useGame now also cover
+    WON links (kept to keep the diff small).

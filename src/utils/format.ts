@@ -5,6 +5,12 @@
 // ============================================================================
 
 import { formatMoney } from '../game/money';
+import { CURRENCY_LOCALE } from '../game/constants';
+
+/** "1,5×" / "10×" (locale from constants). */
+export function formatMultiplier(multiplier: number): string {
+  return `${multiplier.toLocaleString(CURRENCY_LOCALE)}×`;
+}
 
 /** "9,00 €" / "-1,00 €" */
 export function formatCurrency(value: number): string {
@@ -34,6 +40,11 @@ export function formatCountdown(ms: number): string {
   return String(Math.max(0, Math.ceil(ms / 1000)));
 }
 
+/** "95,45 %" (locale from constants). */
 export function formatPercent(fraction: number, decimals = 2): string {
-  return `${(fraction * 100).toFixed(decimals)}%`;
+  return new Intl.NumberFormat(CURRENCY_LOCALE, {
+    style: 'percent',
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(fraction);
 }

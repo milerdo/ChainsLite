@@ -1,94 +1,112 @@
-# CHAINS: Math Sheet
+# CHAINS LITE: Math Sheet
 
 Demo build. Not a certified RNG; not for real-money play.
 © Milutin Erdevicki, concept and code, 2026.
 
+All figures are derived in code from `src/game/constants.ts` and
+`src/game/rtp.ts`, never hardcoded in the UI.
+
 ## 1. Game model
 
 - One shared stream of independent, uniform digits 0-9.
-- A $1 link has a target sequence of 1 / 2 / 3 digits (LOW / MIDI / HIGH).
-  It must match exactly, in order, on consecutive draws. One miss ends it.
-- On a base win the payout is credited immediately and cannot be lost.
-  The link then needs the next 2 draws to match its jackpot pair
-  to win that tier's progressive pool.
-- Every $1 staked adds a fixed share to the tier's pool:
-  6c (MINI, LOW) / 7c (MIDI) / 8c (GRAND, HIGH).
-- Pools are unseeded (start at $0): jackpots are funded 100% by player bets.
+- A link is 3 digits, in order. Stake: 1 € per link.
+- A link starts on the first draw after its bet and lives exactly 3 draws.
+  Draw 1 is checked only against digit 1, draw 2 only against digit 2,
+  draw 3 only against digit 3. A miss does not end the link.
+- The link settles on its 3rd draw, by number of hits (correct positions):
 
-## 2. Base game
+| Hits | Probability | Frequency | Outcome (total return, stake included) |
+|---|---|---|---|
+| 0 | 72.9% | 1 in 1.4 | lose |
+| 1 | 24.3% | 1 in 4.1 | 1.5x |
+| 2 | 2.7% | 1 in 37 | 10x |
+| 3 | 0.1% | 1 in 1,000 | progressive jackpot (instead of 1.5x/10x) |
 
-| Tier | Digits | Hit probability p | Hit frequency | Total return (per $1) | Base RTP = p x payout |
-|---|---|---|---|---|---|
-| LOW | 1 | 10^-1 | 1 in 10 | 9x | 90.0% |
-| MIDI | 2 | 10^-2 | 1 in 100 | 88x | 88.0% |
-| HIGH | 3 | 10^-3 | 1 in 1,000 | 888x | 88.8% |
+Hits follow Binomial(3, 1/10). P(any payout) = 27.1%.
 
-## 3. Jackpot
+## 2. Jackpot
 
-Because pools have no seed and every contribution is eventually paid out,
-jackpot RTP equals the contribution rate (money is conserved; covered by a
-unit test).
+- Single progressive pool, seeded at 200x stake (200 €). Operator-funded seed.
+- 12% of every stake (0.12 € per 1 €) is added to the pool when the bet is
+  confirmed.
+- A 3-hit link wins the whole pool. The pool then resets to 200 €.
+- Links that hit 3 on the same draw split the pool equally, in whole cents
+  (remainder cents go to the first winners, so shares sum exactly to the pool).
+  The seed is re-funded once per payout event.
+- Minimum win 200 €. Average pool at win = 200 + 0.12 / 0.001 = 320 €.
 
-| Tier | Pool | Contribution per $1 | Jackpot hit probability (base win, then the pair) | Jackpot frequency | Average pool at win |
-|---|---|---|---|---|---|
-| LOW | MINI | $0.06 | 10^-1 x 10^-2 = 10^-3 | 1 in 1,000 links | $60 |
-| MIDI | MIDI | $0.07 | 10^-2 x 10^-2 = 10^-4 | 1 in 10,000 links | $700 |
-| HIGH | GRAND | $0.08 | 10^-3 x 10^-2 = 10^-5 | 1 in 100,000 links | $8,000 |
+## 3. RTP
 
-Average pool at win = contribution / hit probability (steady state).
+| Component | Calculation | RTP |
+|---|---|---|
+| 1 hit | 0.243 x 1.5 | 36.45% |
+| 2 hits | 0.027 x 10 | 27.00% |
+| **Regular prizes** | | **63.45%** |
+| Jackpot contribution | 12% of stake | 12.00% |
+| Jackpot seed | 200 x 0.001 | 20.00% |
+| **Jackpot** | | **32.00%** |
+| **Total RTP** | | **95.45%** |
+| **House edge** | | **4.55%** |
 
-## 4. Total RTP
+The seed is paid by the operator after every jackpot, so it is part of the
+player's RTP and a cost of 20% of turnover to the operator, recouped over time
+(the pool also pays out player-funded contributions: money identity below).
 
-| Tier | Base | Jackpot | **Total** | House edge |
-|---|---|---|---|---|
-| LOW | 90.0% | 6.0% | **96.0%** | 4.0% |
-| MIDI | 88.0% | 7.0% | **95.0%** | 5.0% |
-| HIGH | 88.8% | 8.0% | **96.8%** | 3.2% |
-| Equal-weighted average | | | **95.93%** | 4.07% |
+Money identity for the pool:
+`paid + pool = seed + contributed + seed x payout events`
 
-Figures are derived in code from `src/game/rtp.ts`, never hardcoded.
+## 4. Volatility (per 1 € link)
 
-## 5. Volatility (base game, per $1 link)
+Variance = E[X^2] - E[X]^2
 
-Variance = p x m^2 - (p x m)^2
-
-| Tier | Std. deviation |
+| Component | Std. deviation |
 |---|---|
-| LOW | 2.70 |
-| MIDI | 8.76 |
-| HIGH | 28.07 |
+| Regular prizes only | 1.69 |
+| Including jackpot (approx.) | 10.9 |
 
-## 6. Limits and exposure
+The jackpot term uses pool at win = 200 + 0.12 x (links since last win), with
+the gap geometric(0.001). It is an approximation and slightly conservative.
 
-- One tier per round; one bet request per round (no stacking).
-- Link cost: $1. Combo: $1 per unique ordering (max 6 links / $6 for
-  3 distinct digits). LOW multi-pick: up to 3 links.
-- Max concurrent live links on the same tier + sequence: 3.
-- Max single-link win: 888x stake plus the GRAND pool.
-- Base payouts are locked in and cannot be taken back by jackpot outcomes.
+Expected Monte Carlo precision (1 sigma on total RTP): about 0.77% at 2M links,
+about 0.15% at 50M links.
 
-## 6b. Combo and multi-pick do not change the math
+## 5. Limits and exposure
 
-Each possibility is an independent $1 link evaluated against the same stream,
-so RTP per $1 is identical to a straight bet.
+- Max 10 links per round (`MAX_LINKS_PER_ROUND`), i.e. max 10 € staked per round.
+- Identical links are allowed.
+- Max single-link win: the pool (unbounded, grows with play); otherwise 10x.
+- Prizes are paid when the link settles (3rd draw). The stake is debited when
+  the bet is placed.
+
+## 6. Several links do not change the math
+
+Each link is an independent 1 € bet evaluated against the same stream, so RTP
+per 1 € is identical for 1 link or 10. Links that settle on different draws
+never interact except through the shared pool.
+
+Small caveat: if two links win the jackpot on the same draw, the seed is
+refilled once, not twice, so the jackpot RTP is very slightly below the closed
+form in that rare case. The effect is negligible.
 
 ## 7. Verification
 
-- Unit tests: base payouts, jackpot qualification, repeated digits, timelines,
-  combo expansion, split payouts, money conservation, RTP formulas.
-- Monte Carlo through the real ticket state machine, 50,000,000 links per tier,
-  base game only (jackpots are rare, so they are verified by the conservation
-  test instead):
+- Unit tests: hit counting position by position (a miss does not end the
+  link), 1-hit and 2-hit prizes in every position combination, 3-hit jackpot
+  instead of a prize, repeated digits (7-7-7), settlement on the 3rd draw only,
+  overlapping timelines, split payouts, seed reset, money conservation,
+  per-round link cap, closed-form RTP (63.45% / 32% / 95.45%).
+- Monte Carlo through the real ticket state machine and jackpot manager (base
+  prizes, then total with jackpot), plus a smaller run through `ChainsGame`
+  that checks the balance against the sum of settled links.
 
-| Tier | Measured | Theory | Deviation |
+| Run | Measured | Theory | Deviation |
 |---|---|---|---|
-| LOW | 90.031% | 90.000% | +0.8 sigma |
-| MIDI | 87.998% | 88.000% | -0.02 sigma |
-| HIGH | 89.296% | 88.800% | +1.25 sigma |
+| Prizes only, 50,000,000 links | _pending_ | 63.450% | _pending_ |
+| Total incl. jackpot, 50,000,000 links | _pending_ | 95.450% | _pending_ |
 
-Reproduce: 
-macOS/Linux `SIM_BETS=50000000 npx vitest run src/game/sim.test.ts` 
-PowerShell: `$env:SIM_BETS=50000000; npx vitest run src/game/sim.test.ts`
+Reproduce:
+macOS/Linux `SIM_BETS=50000000 npx vitest run src/game/sim.test.ts`
+PowerShell `$env:SIM_BETS=50000000; npx vitest run src/game/sim.test.ts`
 
 ## 8. RNG note
 

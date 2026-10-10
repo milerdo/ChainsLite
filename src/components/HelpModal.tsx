@@ -6,7 +6,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { INITIAL_JACKPOT_POOL, LINK_LENGTH, MAX_LINKS_PER_ROUND, PRIZE_MULTIPLIERS, RNG_DISCLAIMER } from '../game/constants';
 import { houseEdge, totalRtp } from '../game/rtp';
-import { formatCurrency, formatPercent } from '../utils/format';
+import { formatCurrency, formatMultiplier, formatPercent } from '../utils/format';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -73,11 +73,11 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 </tr>
                 <tr className="border-t border-white/[0.07]">
                   <td className="py-2 text-white/60">1</td>
-                  <td className="py-2 text-right font-bold text-[#eab308]">{PRIZE_MULTIPLIERS[1]}×</td>
+                  <td className="py-2 text-right font-bold text-[#eab308]">{formatMultiplier(PRIZE_MULTIPLIERS[1])}</td>
                 </tr>
                 <tr className="border-t border-white/[0.07]">
                   <td className="py-2 text-white/60">2</td>
-                  <td className="py-2 text-right font-bold text-[#eab308]">{PRIZE_MULTIPLIERS[2]}×</td>
+                  <td className="py-2 text-right font-bold text-[#eab308]">{formatMultiplier(PRIZE_MULTIPLIERS[2])}</td>
                 </tr>
                 <tr className="border-t border-white/[0.07]">
                   <td className="py-2 text-white/60">{LINK_LENGTH}</td>
@@ -101,7 +101,7 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
               <div className="mt-3 flex flex-col gap-1.5">
                 <ExampleRow label="Draw 1" value="4" note="✓ hit" tone="win" />
                 <ExampleRow label="Draw 2" value="9" note="✕ miss, link stays alive" tone="miss" />
-                <ExampleRow label="Draw 3" value="3" note={`✓ hit — 2 hits, ${PRIZE_MULTIPLIERS[2]}× paid`} tone="win" />
+                <ExampleRow label="Draw 3" value="3" note={`✓ hit — 2 hits, ${formatMultiplier(PRIZE_MULTIPLIERS[2])} paid`} tone="win" />
               </div>
             </div>
           </Section>

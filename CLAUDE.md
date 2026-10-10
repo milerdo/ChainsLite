@@ -15,6 +15,7 @@ src/game (pure TS engine, no React/DOM), src/hooks (useGame), src/components (re
 - React renders engine state. No game math in components. The wheel never decides the outcome.
 - All outcome randomness via rng.ts (generateDigit for draws, generateAuxDigit otherwise). Cosmetic simulation may use Math.random.
 - RTP figures come ONLY from src/game/rtp.ts, derived from constants. Never hardcode RTP in UI or docs.
+Money display goes ONLY through src/game/money.ts (formatMoney) via utils/format.ts. Never hardcode "€" or "$" in components. Currency and locale live in constants.ts.
 - Engine must be deterministic and testable (seeded RNG for tests).
 
 ## 4. Reveal pipeline (keep from CHAINS)
@@ -34,7 +35,7 @@ Required tests: payout per hit count, position-by-position matching (a miss does
 Run `npx tsc -b` and `npm test` after meaningful changes. Do not claim something works if it was not run.
 
 ## 9. Token efficiency
-Free-tier user. Inspect before editing. Modify only relevant files. Return targeted diffs, not whole files (unless new or short). No unrequested features, duplicate components or new dependencies. Brief plan before large changes. Concise answers, no repeated unchanged code.
+Free-tier user. Inspect before editing. Modify only relevant files. Return targeted diffs, not whole files (unless new or short). No unrequested features, duplicate components or new dependencies. Brief plan before large changes. Concise answers, no repeated unchanged code. Never claim tsc/tests/lint pass unless you ran them in this session. If you cannot run them, say so and give the exact commands.
 
 ## 10. Communication
 Before: state what you will change and the risks. After: summarize changes, list files, report test/tsc results, known issues, suggest next milestone.
@@ -44,6 +45,19 @@ Demo MVP. Clearly label simulated systems (player counts, heat map, chat). Produ
 
 ## 12. First task of a session
 Read ChainsLiteContext.txt (incl. log) and this file. Inspect the ACTUAL codebase (do not trust stale descriptions). Report current state, contradictions and a plan. Wait for approval before major changes.
+
+## 13. Current state (as of 2026-10-10; see ChainsLiteContext.txt IMPLEMENTATION LOG)
+CHAINS LITE engine, hook and UI are rebuilt (milestones 1-4 delivered). Rules are final unless the log says otherwise:
+- Link = 3 digits, 3 draws, draw k checked only against digit k, a miss does not end the link, settles on the 3rd draw. 0 hits lose, 1 hit 1.5x, 2 hits 10x, 3 hits jackpot INSTEAD of a prize.
+- Single pool, seed 200, contribution 0.12 per 1 stake, total RTP 95.45%. Currency EUR, European format (symbol after number).
+- Several links per round, MAX_LINKS_PER_ROUND = 10. No bet-ahead. No Auto Bet.
+- Ticket statuses: WAITING, ACTIVE, LOST, WON, JACKPOT_WON. Per-position circle state is derived from drawLog, not stored.
+
+Current phase: owner is playtesting and sending bug and visual reports. Work in small diffs, one issue at a time. Visual and layout fixes must not touch src/game. Do not change rules, payouts, jackpot funding or the reveal pipeline for visual reasons.
+
+The post-M3 tsc/vitest/lint results ran succesfully, the 50M Monte Carlo to be run at the end.
+
+Known open items are listed in the log under KNOWN ISSUES / TODO. Check it before reporting something as a new bug.
 
 ## Final principle
 Simple to play, simple to explain. Correctness before polish. Small tested changes.

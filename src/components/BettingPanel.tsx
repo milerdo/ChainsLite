@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '../hooks/useGame';
 import { playUiClick } from '../utils/audio';
-import { formatCompactCurrency, formatCurrency } from '../utils/format';
+import { formatCompactCurrency, formatCurrency, formatMultiplier } from '../utils/format';
 import { LINK_LENGTH, MAX_LINKS_PER_ROUND, PRIZE_MULTIPLIERS, TICKET_STAKE } from '../game/constants';
 import { DIGIT_COLORS } from '../utils/digitColors';
 
@@ -75,7 +75,7 @@ export function BettingPanel() {
       className="rounded-3xl border border-white/[0.07] bg-gradient-to-b from-white/[0.035] to-transparent p-4 backdrop-blur-sm sm:p-5"
     >
       <p className="text-center font-mono text-[11px] text-white/45">
-        1 hit {PRIZE_MULTIPLIERS[1]}× · 2 hits {PRIZE_MULTIPLIERS[2]}× ·{' '}
+        1 hit {formatMultiplier(PRIZE_MULTIPLIERS[1])} · 2 hits {formatMultiplier(PRIZE_MULTIPLIERS[2])} ·{' '}
         <span className="font-bold text-[#eab308]">3 hits JACKPOT {formatCompactCurrency(jackpotPool)}</span>
       </p>
 
