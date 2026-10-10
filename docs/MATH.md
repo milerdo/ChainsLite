@@ -72,7 +72,7 @@ about 0.15% at 50M links.
 
 ## 5. Limits and exposure
 
-- Max 10 links per round (`MAX_LINKS_PER_ROUND`), i.e. max 10 € staked per round.
+- Max 5 links per round (`MAX_LINKS_PER_ROUND`), i.e. max 5 € staked per round.
 - Identical links are allowed.
 - Max single-link win: the pool (unbounded, grows with play); otherwise 10x.
 - Prizes are paid when the link settles (3rd draw). The stake is debited when

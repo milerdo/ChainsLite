@@ -19,7 +19,7 @@ function circleColors(digit: number, state: CircleState): { bg: string; border: 
   const c = DIGIT_COLORS[digit];
   switch (state) {
     case 'hit':
-      return { bg: `${c}80`, border: '#34d399' };
+      return { bg: `${c}80`, border: '#4ade80' };
     case 'miss':
       return { bg: `${c}40`, border: '#f87171' };
     case 'current':
@@ -52,10 +52,17 @@ export function ChainCircle({ digit, state, size = 'md' }: CircleProps) {
         'relative flex shrink-0 items-center justify-center rounded-full border font-mono font-bold tabular-nums transition-colors',
         dims,
         state === 'current' ? 'border-[3px] shadow-[0_0_0_3px_rgba(234,179,8,0.18)] animate-pulse' : '',
+        state === 'hit' ? 'border-[3px] shadow-[0_0_10px_2px_rgba(74,222,128,0.6)]' : '',
+        state === 'miss' ? 'border-[3px]' : '',
         TEXT[state],
       ].join(' ')}
     >
       {digit}
+      {state === 'hit' && (
+        <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-400 text-[9px] font-black leading-none text-black">
+          ✓
+        </span>
+      )}
       {state === 'miss' && (
         <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-sm font-black text-red-400">
           ✕

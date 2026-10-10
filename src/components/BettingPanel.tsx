@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '../hooks/useGame';
 import { playUiClick } from '../utils/audio';
-import { formatCompactCurrency, formatCurrency, formatMultiplier } from '../utils/format';
-import { LINK_LENGTH, MAX_LINKS_PER_ROUND, PRIZE_MULTIPLIERS, TICKET_STAKE } from '../game/constants';
+import { formatCurrency } from '../utils/format';
+import { LINK_LENGTH, TICKET_STAKE } from '../game/constants';
 import { DIGIT_COLORS } from '../utils/digitColors';
 
 const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 export function BettingPanel() {
-  const { placeBet, balance, bettingLocked: locked, jackpotPool, activeTickets } = useGame();
+  const { placeBet, balance, bettingLocked: locked } = useGame();
   const [digits, setDigits] = useState<(number | null)[]>(() => Array(LINK_LENGTH).fill(null));
   const [focus, setFocus] = useState<number | null>(0);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -63,7 +63,8 @@ export function BettingPanel() {
     if (result.success) {
       playUiClick();
       setFeedback({ type: 'success', message: result.message });
-      setFocus(null);
+      setDigits(Array(LINK_LENGTH).fill(null));
+      setFocus(0);
     } else {
       setFeedback({ type: 'error', message: result.message });
     }
@@ -74,12 +75,7 @@ export function BettingPanel() {
       aria-label="Place a bet"
       className="rounded-3xl border border-white/[0.07] bg-gradient-to-b from-white/[0.035] to-transparent p-4 backdrop-blur-sm sm:p-5"
     >
-      <p className="text-center font-mono text-[11px] text-white/45">
-        1 hit {formatMultiplier(PRIZE_MULTIPLIERS[1])} · 2 hits {formatMultiplier(PRIZE_MULTIPLIERS[2])} ·{' '}
-        <span className="font-bold text-[#eab308]">3 hits JACKPOT {formatCompactCurrency(jackpotPool)}</span>
-      </p>
-
-      <div className="mt-3 flex items-center justify-center gap-2">
+      <div className="flex items-center justify-center gap-2">
         {digits.map((digit, i) => {
           const isFocused = focus === i;
           const isFilled = digit !== null;
@@ -125,19 +121,7 @@ export function BettingPanel() {
         ))}
       </div>
 
-      {feedback && (
-        <p
-          role="status"
-          className={[
-            'mt-2 rounded-lg px-3 py-1.5 text-center text-xs',
-            feedback.type === 'success' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-red-400/10 text-red-300',
-          ].join(' ')}
-        >
-          {feedback.message}
-        </p>
-      )}
-
-      <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="mt-2 flex items-center justify-center gap-2">
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -156,24 +140,33 @@ export function BettingPanel() {
             Random
           </button>
         </div>
-        <span className="font-mono text-[10px] text-white/35">
-          {activeTickets.length} active · max {MAX_LINKS_PER_ROUND}/round
-        </span>
       </div>
 
       <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 rounded-b-3xl border-t border-white/[0.06] bg-[#141414]/95 px-4 pb-4 pt-4 backdrop-blur-sm sm:-mx-5 sm:-mb-5 sm:px-5 sm:pb-5">
-        <button
+          <button
           type="button"
           onClick={handleSubmit}
           disabled={!canSubmit}
+          aria-live="polite"
           className={[
-            'flex h-12 w-full items-center justify-center rounded-xl px-4 font-mono text-sm font-bold uppercase tracking-[0.2em] transition',
-            canSubmit
-              ? 'bg-[#eab308] text-black shadow-[0_0_24px_-6px_rgba(234,179,8,0.7)] hover:bg-[#facc15]'
-              : 'cursor-not-allowed bg-white/[0.06] text-white/25',
+            'flex h-12 w-full items-center justify-center rounded-xl border px-2 text-center font-mono transition',
+            feedback
+              ? 'border-transparent text-[11px] font-semibold normal-case leading-tight tracking-normal'
+              : 'border-transparent text-sm font-bold uppercase tracking-[0.2em]',
+            feedback?.type === 'success'
+              ? 'cursor-default border-emerald-400/40 bg-emerald-400/15 text-emerald-300'
+              : feedback?.type === 'error'
+                ? 'border-red-400/40 bg-red-400/15 text-red-300'
+                : canSubmit
+                  ? 'bg-[#eab308] text-black shadow-[0_0_24px_-6px_rgba(234,179,8,0.7)] hover:bg-[#facc15]'
+                  : 'cursor-not-allowed bg-white/[0.06] text-white/25',
           ].join(' ')}
         >
-          {complete ? `Place ${formatCurrency(TICKET_STAKE)} Bet` : `Select ${LINK_LENGTH} Digits`}
+          {feedback
+            ? feedback.message
+            : complete
+              ? `Place ${formatCurrency(TICKET_STAKE)} Bet`
+              : `Select ${LINK_LENGTH} Digits`}
         </button>
       </div>
     </section>

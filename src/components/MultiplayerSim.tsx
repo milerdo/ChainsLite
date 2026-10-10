@@ -47,14 +47,14 @@ export function MultiplayerSim() {
 
   return (
     <section
-      aria-label="Simulated bets heat map"
+      aria-label="Simulated live active bets"
       className="flex h-full min-h-0 flex-col rounded-3xl border border-white/[0.07] bg-gradient-to-b from-white/[0.035] to-transparent p-4 backdrop-blur-sm"
     >
       <div className="flex shrink-0 items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-[0.4em] text-white/40">Bets Heat Map</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.4em] text-white/40">Live Active Bets</span>
         <span className="flex items-center gap-1.5 font-mono text-[10px] tabular-nums text-white/40">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-          {simulatedActivity.playerCount.toLocaleString()} active
+          {simulatedActivity.playerCount.toLocaleString()} players
         </span>
       </div>
 

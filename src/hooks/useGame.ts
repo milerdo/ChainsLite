@@ -235,7 +235,7 @@ export function GameProvider({
               continue;
             }
             if (ticket.status === 'LOST') {
-              flashSettled(ticket.id, 900);
+              flashSettled(ticket.id, 500);
               continue;
             }
           }
@@ -253,7 +253,7 @@ export function GameProvider({
           playBaseWin();
           setPayoutFlash({ amount: prizeTotal, key: Date.now() });
           if (payoutFlashTimeoutRef.current !== null) window.clearTimeout(payoutFlashTimeoutRef.current);
-          payoutFlashTimeoutRef.current = window.setTimeout(() => setPayoutFlash(null), 2800);
+          payoutFlashTimeoutRef.current = window.setTimeout(() => setPayoutFlash(null), 4500);
         }
       };
 

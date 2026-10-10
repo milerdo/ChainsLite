@@ -47,7 +47,7 @@ export const DEMO_JACKPOT_PRESET = 320;
 
 /** Max links a player may hold that were created in one betting round
  * (i.e. since the last draw). Edit this one number to change the cap. */
-export const MAX_LINKS_PER_ROUND = 10;
+export const MAX_LINKS_PER_ROUND = 5;
 
 // --- Bounds on retained history -------------------------------------------
 export const MAX_STREAM_HISTORY = 200;

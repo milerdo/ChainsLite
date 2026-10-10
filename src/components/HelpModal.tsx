@@ -5,7 +5,7 @@
 
 import { useEffect, type ReactNode } from 'react';
 import { INITIAL_JACKPOT_POOL, LINK_LENGTH, MAX_LINKS_PER_ROUND, PRIZE_MULTIPLIERS, RNG_DISCLAIMER } from '../game/constants';
-import { houseEdge, totalRtp } from '../game/rtp';
+import { totalRtp } from '../game/rtp';
 import { formatCurrency, formatMultiplier, formatPercent } from '../utils/format';
 
 interface HelpModalProps {
@@ -50,27 +50,21 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
         </div>
 
         <div className="mt-6 flex flex-col gap-6 text-sm leading-relaxed text-white/70">
-          <Section title="Your link">
+          <Section title="Place a bet">
             <p>
-              Pick {LINK_LENGTH} digits, in order, and place a {formatCurrency(1)} bet. Your link starts on the next draw and
-              lives exactly {LINK_LENGTH} draws. Draw 1 is checked against your 1st digit, draw 2 against your 2nd, draw 3
-              against your 3rd. A miss does not end the link. You can place up to {MAX_LINKS_PER_ROUND} links per round.
+              Pick {LINK_LENGTH} numbers and place a {formatCurrency(1)} bet.The next 3 draws are matched to your chosen numbers in order, one by one. You can place up to {MAX_LINKS_PER_ROUND} links per round.
             </p>
           </Section>
 
-          <Section title="Prizes">
+          <Section title="Paytable">
             <table className="w-full font-mono text-xs">
               <thead>
                 <tr className="text-left uppercase tracking-[0.15em] text-white/40">
-                  <th className="pb-2 font-medium">Hits</th>
+                  <th className="pb-2 font-medium">Numbers Matched</th>
                   <th className="pb-2 text-right font-medium">Total return</th>
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-t border-white/[0.07]">
-                  <td className="py-2 text-white/60">0</td>
-                  <td className="py-2 text-right text-white/40">—</td>
-                </tr>
                 <tr className="border-t border-white/[0.07]">
                   <td className="py-2 text-white/60">1</td>
                   <td className="py-2 text-right font-bold text-[#eab308]">{formatMultiplier(PRIZE_MULTIPLIERS[1])}</td>
@@ -81,17 +75,16 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 </tr>
                 <tr className="border-t border-white/[0.07]">
                   <td className="py-2 text-white/60">{LINK_LENGTH}</td>
-                  <td className="py-2 text-right font-bold text-[#eab308]">JACKPOT</td>
+                  <td className="py-2 text-right font-bold text-[#eab308]">PROGRESSIVE JACKPOT</td>
                 </tr>
               </tbody>
             </table>
-            <p className="mt-3">Prizes are paid when your link settles, on its 3rd draw.</p>
           </Section>
 
           <Section title="Jackpot">
             <p>
-              The pool starts at {formatCurrency(INITIAL_JACKPOT_POOL)}, grows with every bet, and resets after a win. Hit all{' '}
-              {LINK_LENGTH} digits to win the whole pool instead of the 1- or 2-hit prize. Simultaneous winners split it equally.
+              The pool starts at {formatCurrency(INITIAL_JACKPOT_POOL)} and grows with every bet. Hit all{' '}
+              {LINK_LENGTH} digits to win the jackpot. Simultaneous winners split it equally.
             </p>
           </Section>
 
@@ -108,10 +101,8 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
           <Section title="RTP - Return to Player">
             <div className="grid grid-cols-2 gap-2">
-              <RtpStat label="Total RTP" value={formatPercent(totalRtp())} highlight />
-              <RtpStat label="House edge" value={formatPercent(houseEdge())} />
+              <RtpStat label="Total RTP" value={formatPercent(totalRtp())} />
             </div>
-            <p className="mt-2 text-xs text-white/45">Includes the jackpot share funded by bets and the operator seed.</p>
           </Section>
 
           <Section title="Demo">

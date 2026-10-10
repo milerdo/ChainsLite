@@ -36,6 +36,9 @@ function AppShell() {
   const isDesktop = useMediaQuery('(min-width: 1024px)'); // matches Tailwind's `lg`
   const shortScreen = useMediaQuery('(max-height: 740px)');
 
+  // Locked with nothing live: show the (disabled) bet panel, not an empty links list.
+  const showLinksOnly = bettingLocked && activeTickets.length > 0;
+
   return (
     <div className="table-ambience flex h-dvh flex-col overflow-hidden text-white/90">
       <GameHeader
@@ -60,7 +63,7 @@ function AppShell() {
             </div>
             <div className="flex min-h-0 flex-col overflow-hidden">
               <PhaseStatus className="mb-3" />
-              <div className={['min-h-0 flex-1 overflow-y-auto pr-1', bettingLocked ? 'hidden' : ''].join(' ')}>
+              <div className={['min-h-0 flex-1 overflow-y-auto pr-1', showLinksOnly ? 'hidden' : ''].join(' ')}>
                 <BettingPanel />
                 {activeTickets.length > 0 && (
                   <div className="mt-3">
@@ -68,7 +71,7 @@ function AppShell() {
                   </div>
                 )}
               </div>
-              {bettingLocked && (
+              {showLinksOnly && (
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <TicketDrawer tickets={activeTickets} />
                 </div>
@@ -79,18 +82,23 @@ function AppShell() {
       ) : (
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex min-h-0 flex-1 flex-col gap-2 px-4 py-2">
-            <PhaseStatus />
-            {!(shortScreen && !bettingLocked) && <JackpotPanel />}
+            <JackpotPanel />
+            <PhaseStatus mobile />
             <div className={['shrink-0', shortScreen && !bettingLocked ? 'hidden' : ''].join(' ')}>
               <Wheel compact collapsed={phase === 'BETTING_OPEN'} />
             </div>
             {/* Shared zone: BettingPanel stays mounted (hidden) while locked */}
-            <div className={['flex min-h-0 flex-1 flex-col gap-2', bettingLocked ? 'hidden' : ''].join(' ')}>
+            <div className={['flex min-h-0 flex-1 flex-col gap-2', showLinksOnly ? 'hidden' : ''].join(' ')}>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <BettingPanel />
+                {activeTickets.length > 0 && (
+                  <div className="mt-2">
+                    <TicketDrawer tickets={activeTickets} compact />
+                  </div>
+                )}
               </div>
             </div>
-             {bettingLocked && activeTickets.length > 0 && <TicketDrawer tickets={activeTickets} compact />}
+             {showLinksOnly && <TicketDrawer tickets={activeTickets} compact />}
           </div>
           <MobileFooter
             balance={balance}

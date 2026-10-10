@@ -101,9 +101,11 @@ describe('MAX_LINKS_PER_ROUND', () => {
 
   it('counts links across several bets in the same round', () => {
     const game = new ChainsGame();
-    expect(game.placeBet({ links: many(6) }).success).toBe(true);
-    expect(game.placeBet({ links: many(MAX_LINKS_PER_ROUND - 6 + 1) }).success).toBe(false);
-    expect(game.placeBet({ links: many(MAX_LINKS_PER_ROUND - 6) }).success).toBe(true);
+    const first = MAX_LINKS_PER_ROUND - 2; // leaves room for exactly 2 more
+    expect(game.placeBet({ links: many(first) }).success).toBe(true);
+    expect(game.placeBet({ links: many(3) }).success).toBe(false); // 2 left, 3 requested
+    expect(game.placeBet({ links: many(2) }).success).toBe(true);
+    expect(game.placeBet({ links: many(1) }).success).toBe(false); // now full
   });
 
   it('resets once a draw has happened (new round)', () => {

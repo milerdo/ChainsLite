@@ -454,8 +454,7 @@ export class ChainsGame {
       const alreadyThisRound = this.tickets.filter((t) => t.createdAtDrawIndex === this.drawIndex).length;
       if (alreadyThisRound + request.links.length > MAX_LINKS_PER_ROUND) {
         return this.betFailure(
-          `Maximum of ${MAX_LINKS_PER_ROUND} links per round ` +
-            `(${alreadyThisRound} already placed, ${request.links.length} requested).`,
+          `Maximum of ${MAX_LINKS_PER_ROUND} links per round`,
         );
       }
     }
@@ -488,7 +487,7 @@ export class ChainsGame {
       success: true,
       message:
         newTickets.length === 1
-          ? `Bet placed: 1 link, total stake ${money(totalStake)}.`
+          ? `${money(totalStake)} BET ACCEPTED`
           : `${newTickets.length} links placed, total stake ${money(totalStake)}.`,
       ticketIds: newTickets.map((t) => t.id),
       totalStake,

@@ -12,7 +12,7 @@ Pick 3 digits, press Bet. Every bet is a **link** with its own 3-draw timeline.
 
 ## How it plays
 
-1. Pick 3 digits, in order (repeats allowed). 1 € per link. Up to 10 links per round.
+1. Pick 3 digits, in order (repeats allowed). 1 € per link. Up to 5 links per round.
 2. Your link starts on the next draw and lives exactly 3 draws. Draw 1 is checked
    against your 1st digit, draw 2 against your 2nd, draw 3 against your 3rd.
 3. A miss does not end the link: all 3 draws always play.

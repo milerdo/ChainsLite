@@ -50,14 +50,22 @@ Read ChainsLiteContext.txt (incl. log) and this file. Inspect the ACTUAL codebas
 CHAINS LITE engine, hook and UI are rebuilt (milestones 1-4 delivered). Rules are final unless the log says otherwise:
 - Link = 3 digits, 3 draws, draw k checked only against digit k, a miss does not end the link, settles on the 3rd draw. 0 hits lose, 1 hit 1.5x, 2 hits 10x, 3 hits jackpot INSTEAD of a prize.
 - Single pool, seed 200, contribution 0.12 per 1 stake, total RTP 95.45%. Currency EUR, European format (symbol after number).
-- Several links per round, MAX_LINKS_PER_ROUND = 10. No bet-ahead. No Auto Bet.
+- Several links per round, MAX_LINKS_PER_ROUND = 5 (max 15 live across 3 overlapping rounds). No bet-ahead. No Auto Bet.
 - Ticket statuses: WAITING, ACTIVE, LOST, WON, JACKPOT_WON. Per-position circle state is derived from drawLog, not stored.
 
 Current phase: owner is playtesting and sending bug and visual reports. Work in small diffs, one issue at a time. Visual and layout fixes must not touch src/game. Do not change rules, payouts, jackpot funding or the reveal pipeline for visual reasons.
 
-The post-M3 tsc/vitest/lint results ran succesfully, the 50M Monte Carlo to be run at the end.
+Last verified run: <fill in: tsc / npm test / lint results and date>. The 50M Monte Carlo is still to be run at the end.
 
 Known open items are listed in the log under KNOWN ISSUES / TODO. Check it before reporting something as a new bug.
+
+## 14. UI conventions (settled in the polish round)
+- Prize multipliers and the pool amount are shown only in JackpotPanel (one line). BettingPanel shows no prize text.
+- The "Win X paid" flash lives only in JackpotPanel, driven by payoutFlash. PhaseStatus never shows it.
+- Bet confirmation/error messages render inside the Place Bet button so nothing shifts.
+- Wheel chips derive from the reveal-gated activeTickets, never raw gameState. They clear on each new reveal and return after CHIP_HOP_DELAY_MS / speedMultiplier. Pure visual; no filters on the rotating tree.
+- LOST links leave activeTickets immediately; WON links stay about 2 s.
+- Mobile: JackpotPanel is the first row; PhaseStatus only while betting is open.
 
 ## Final principle
 Simple to play, simple to explain. Correctness before polish. Small tested changes.

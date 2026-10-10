@@ -121,11 +121,8 @@ IMPLEMENTATION LOG (append only; log wins over the sections above)
   * Manual playtest of the full game is in progress by the owner.
 
 - 2026-10-10 KNOWN ISSUES / TODO
-  * Mobile: links placed during betting show only as an "N active" count (the
-    LinkStrip was removed); full cards appear once betting locks.
   * Amount inconsistency: history shows NET (e.g. +0,50 €), settled-link badge
     and banner show TOTAL RETURN (1,50 €). Decide and align.
-  * Bet button and jackpot panel may be tight with "1,00 €" format; check layout.
   * index.html title still "chains-game"; logo still /chains-logo.png (old).
   * README: add screenshots and the play link. Owner name set to
     "Milutin Erdevicki" (taken from the old MATH.md; confirm).
@@ -137,3 +134,37 @@ IMPLEMENTATION LOG (append only; log wins over the sections above)
     WHEEL_MAX_LANDING_MS must stay >= Wheel.tsx MAX_APPROACH_MS (1800).
   * Names flashingFailedIds / failedFlashTimeoutsRef in useGame now also cover
     WON links (kept to keep the diff small).
+
+- 2026-10-10 UI POLISH ROUND (supersedes earlier log lines where they differ)
+  * MAX_LINKS_PER_ROUND = 5 (owner decision; supersedes 10). Links live 3
+    draws, so at most 15 are live at once. engine.test.ts cap test rewritten
+    to be cap-agnostic (works for any cap >= 3).
+  * Prize line and pool amount now live ONLY in JackpotPanel, one line:
+    "1 hit 1,5x · 2 hits 10x · 3 hits JACKPOT <pool>". BettingPanel shows no
+    prize text. (Supersedes section 6 "near the panel".)
+  * "Win X paid" flash lives ONLY in JackpotPanel (desktop and mobile).
+    PhaseStatus no longer shows it. Flash duration 4500 ms (useGame).
+  * Mobile: JackpotPanel is the first row (fixed h-11); PhaseStatus shows only
+    while betting is open (countdown), GOOD LUCK is not shown on mobile.
+    Active links also appear under the bet panel on mobile.
+  * BettingPanel: bet confirmation/error text appears inside the Place Bet
+    button (no layout shift). After a successful bet the 3 slots clear and
+    focus returns to slot 1. The "N active / max" counter was removed.
+  * Link circles: hit = thick bright green border + check badge; miss = thick
+    border + X (visual only).
+  * Wheel chips (visual only): one chip stack per digit a live link needs on
+    its NEXT draw, scattered black chips, count shown only above 4. Derived
+    from gated activeTickets. Chips vanish on each new reveal and return after
+    CHIP_HOP_DELAY_MS (1000) / speedMultiplier.
+  * LOST links leave the active list immediately on reveal (no red-flash
+    hold). WON links stay ~2 s. If nothing is live while locked, the (disabled)
+    bet panel shows instead of an empty "No active links" list.
+  * Heat map renamed "Live Active Bets"; "N active" -> "N players". Still
+    simulated.
+  * No change to rules, payouts, jackpot funding, RNG or the reveal pipeline.
+
+- 2026-10-10 VERIFICATION (update after you run them)
+  * npm test before the cap test fix: 59 passed, 1 failed (cap test, now
+    rewritten). Monte Carlo 2M: total RTP 95.574% vs 95.450% theory (0.16 sigma).
+  * Not confirmed after this round: npx tsc -b, npm run lint, npm test (re-run).
+  * 50M Monte Carlo still pending; docs/MATH.md rows still "_pending_".

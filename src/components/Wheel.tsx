@@ -9,6 +9,7 @@ import { useGame } from '../hooks/useGame';
 import { playTick } from '../utils/audio';
 import type { GamePhase } from '../game/types';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { isTerminal } from '../game/ticket';
 
 // --- Geometry (SVG viewBox 0 0 300 300, center 150,150) -----------------
 const HOLE_COUNT = 10;
@@ -23,6 +24,18 @@ const HUB_R = 20;
 const RIVET_R = 136;
 const RIVET_COUNT = 26;
 const PEG_VISUAL_R = 6.5; // raised-bump size — large enough to read as physical
+const CHIP_R = 114; // chip center radius: just outside the digit, inside the pegs
+const CHIP_VISUAL_R = 7.5;
+const CHIP_HOP_DELAY_MS = 1000; // pause after the wheel lands before chips reappear
+const NO_CHIPS_KEY = '0,0,0,0,0,0,0,0,0,0';
+/** [angle offset in degrees, radius offset] per chip in a stack. Index 0 is
+ * the top chip. Offsets keep chips clear of the wedge-boundary pegs. */
+const CHIP_SCATTER: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [-7, -4],
+  [7, -3],
+  [1, -9],
+];
 
 import { DIGIT_COLORS as WEDGE_COLORS } from '../utils/digitColors';
 
@@ -103,11 +116,14 @@ const WheelDisc = memo(function WheelDisc({
   uid,
   discRef,
   landedDigit,
+  chipsKey,
 }: {
   uid: string;
   discRef: RefObject<SVGGElement | null>;
   landedDigit: number | null;
+  chipsKey: string; // "0,2,0,1,..." live links per digit
 }) {
+  const chipCounts = chipsKey.split(',').map(Number);
   return (
     <>
       {/* transform is driven imperatively via discRef; this initial value never changes, so React never overwrites it */}
@@ -159,6 +175,42 @@ const WheelDisc = memo(function WheelDisc({
             </text>
           );
         })}
+        {chipCounts.map((count, i) => {
+          if (count <= 0) return null;
+          const angle = i * HOLE_STEP_DEG;
+          const shown = Math.min(count, CHIP_SCATTER.length);
+          // Draw the last chip first so chip 0 ends up on top.
+          return (
+            <g key={`chip-${i}`}>
+              {Array.from({ length: shown }, (_, n) => shown - 1 - n).map((k) => {
+                const [dA, dR] = CHIP_SCATTER[k];
+                const p = pt(angle + dA, CHIP_R + dR);
+                return (
+                  <g key={k}>
+                    <circle cx={p.x} cy={p.y + 0.8} r={CHIP_VISUAL_R + 0.5} fill="#000" opacity={0.35} />
+                    <circle cx={p.x} cy={p.y} r={CHIP_VISUAL_R} fill="#111418" stroke="#f1f5f9" strokeWidth={1.4} />
+                    <circle cx={p.x} cy={p.y} r={5} fill="none" stroke="#f1f5f9" strokeWidth={1.1} strokeDasharray="2.2 2.2" opacity={0.85} />
+                    {k === 0 && count > CHIP_SCATTER.length && (
+                      <text
+                        x={p.x}
+                        y={p.y}
+                        transform={`rotate(${angle} ${p.x} ${p.y})`}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fontFamily="ui-monospace, 'SFMono-Regular', monospace"
+                        fontWeight={800}
+                        fontSize={8}
+                        fill="#f8fafc"
+                      >
+                        {count}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
         <circle cx={CX} cy={CY} r={HUB_R} fill={`url(#hubGrad-${uid})`} stroke="#2a1c02" strokeWidth={1.5} />
       </g>
       <circle cx={CX} cy={CY} r={RIM_INNER_R} fill={`url(#specularGrad-${uid})`} />
@@ -177,7 +229,7 @@ const WheelDisc = memo(function WheelDisc({
 }
 
 export function Wheel({ compact = false, collapsed = false }: WheelProps) {
-  const { phase, wheelTargetDraw, speedMultiplier, streamHistory, reportWheelLanded } = useGame();
+  const { phase, wheelTargetDraw, speedMultiplier, streamHistory, reportWheelLanded, activeTickets, currentDraw } = useGame();
   // Unique per-mount suffix for this instance's gradient defs — two Wheel
   // instances are mounted at once (desktop + mobile tab), and duplicate
   // SVG ids across them caused refs to resolve into a display:none
@@ -368,6 +420,32 @@ export function Wheel({ compact = false, collapsed = false }: WheelProps) {
   );
 
   const recentDigits = streamHistory.slice(-10);
+  // Digit each live link needs on its NEXT draw. activeTickets is reveal-gated,
+  // so chips hop to the next digit only after the wheel has landed.
+  const chipCounts: number[] = Array(10).fill(0);
+  for (const t of activeTickets) {
+    if (isTerminal(t.status)) continue;
+    const needed = t.digits[t.drawLog.length];
+    if (needed !== undefined) chipCounts[needed] += 1;
+  }
+  const chipsKey = chipCounts.join(',');
+
+  // Chips for the next draw reappear CHIP_HOP_DELAY_MS after a draw is revealed.
+  // Bets placed within the same round (draw index unchanged) show immediately.
+  const [shownChipsKey, setShownChipsKey] = useState(chipsKey);
+  const lastChipDrawRef = useRef(currentDraw?.drawIndex);
+  useEffect(() => {
+    const drawChanged = currentDraw?.drawIndex !== lastChipDrawRef.current;
+    lastChipDrawRef.current = currentDraw?.drawIndex;
+    if (!drawChanged) {
+      setShownChipsKey(chipsKey);
+      return;
+    }
+    setShownChipsKey(NO_CHIPS_KEY);
+    const id = window.setTimeout(() => setShownChipsKey(chipsKey), CHIP_HOP_DELAY_MS / speedMultiplier);
+    return () => window.clearTimeout(id);
+  }, [chipsKey, currentDraw?.drawIndex, speedMultiplier]);
+
   const tall = useMediaQuery('(min-height: 800px)');
   const size = compact ? (tall ? 300 : 260) : 340;
 
@@ -395,7 +473,7 @@ export function Wheel({ compact = false, collapsed = false }: WheelProps) {
         <div className="rounded-full shadow-[0_8px_18px_rgba(0,0,0,0.55)] [&>svg]:block">
           <svg width={size} height={size} viewBox="0 0 300 300">
             <WheelFrame uid={uid} />
-            <WheelDisc uid={uid} discRef={discRef} landedDigit={justLanded ? currentDigit : null} />
+            <WheelDisc uid={uid} discRef={discRef} landedDigit={justLanded ? currentDigit : null} chipsKey={shownChipsKey} />
 
             <circle cx={CX} cy={22} r={5} fill={`url(#frameGrad-${uid})`} stroke="#2a1c02" strokeWidth={1} />
             <g
